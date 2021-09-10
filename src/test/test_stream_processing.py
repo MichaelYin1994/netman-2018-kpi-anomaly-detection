@@ -73,6 +73,14 @@ class StreamDeque():
     ArrayDeque的实现中，同时设计了多种针对流数据的特征抽取算法。包括：
     - 给定时间窗口内均值(mean)抽取算法。
     - 给定时间窗口内标准差(std)抽取算法。
+    - 给定时间窗口内的range count分布抽取。
+    - 给定时间窗口内的HOG-1D特征抽取。[2]
+    - 时间shift特征。
+
+    时序stream特征抽取时，若是时间戳连续，则算法可以做到O(1)时间与空间复杂度，
+    但是由于实际场景中日志采集的时间戳不一定是连续的，因此抽取指定窗口内的统计量
+    需要先进行窗口放缩的操作，因此时间复杂度不再是O(1)，但是我们的实现仍然保证了
+    线性时间复杂度的统计量抽取。
 
     @Attributes:
     ----------
@@ -92,11 +100,14 @@ class StreamDeque():
         用于模拟deque范围的deque的尾指针，永远指向deque最后一个有值元素索引的
         下一个元素索引。
     deque_stats: {dict-like}
-        deque内部不同时间范围的基础统计量。
+        用于保持stream计算统计量时的一些基础统计信息。
 
     @References:
     ----------
     [1] https://www.kaggle.com/lucasmorin/running-algos-fe-for-fast-inference
+    [2] Zhao, Jiaping, and Laurent Itti. "Classifying time series using local descriptors with hybrid sampling." IEEE Transactions on Knowledge and Data Engineering 28.3 (2015): 623-637.
+    [3] Rakthanmanon, Thanawin, et al. "Searching and mining trillions of time series subsequences under dynamic time warping." Proceedings of the 18th ACM SIGKDD international conference on Knowledge discovery and data mining. 2012.
+    [4] Zhao, Nengwen, et al. "Label-less: A semi-automatic labelling tool for kpi anomalies." IEEE INFOCOM 2019-IEEE Conference on Computer Communications. IEEE, 2019.
     '''
     def __init__(self, interval=20, max_time_span=3600):
         self.interval = interval
@@ -169,7 +180,7 @@ class StreamDeque():
         '''抽取window_size范围内的mean统计量'''
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + 0
 
         if field_name in self.deque_stats:
@@ -200,7 +211,7 @@ class StreamDeque():
         '''抽取window_size范围内std统计量'''
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + 1
 
         if field_name in self.deque_stats:
@@ -242,7 +253,7 @@ class StreamDeque():
             raise ValueError('Invalid value range !')
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + hash(low) + hash(high)
 
         if field_name in self.deque_stats:
@@ -280,7 +291,7 @@ class StreamDeque():
             raise ValueError('Invalid low or high value !')
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + hash(n_bins) + hash(low) + hash(high)
 
         if field_name in self.deque_stats:

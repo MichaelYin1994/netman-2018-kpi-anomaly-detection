@@ -67,7 +67,7 @@ if __name__ == '__main__':
     # ----------------
     NROWS = None
     IS_PLOT_KPI = True
-    TEST_RESERVATION_RATIO = 0.3
+    TEST_DEV_RATIO = 0.3
     TRAIN_PATH = '../data/kpi competition/'
 
     # 数据预处理：
@@ -106,9 +106,7 @@ if __name__ == '__main__':
             train_tmp_df['label'].values
         )
 
-    # 拆分测试数据，做两类拆分：
-    # 1. 按时间戳范围与预设比例，拆分testing数据
-    # 2. 整体测试数据进行流式拆分
+    # 拆分测试数据：按时间戳范围与预设比例，拆分testing数据
     # *************
 
     # 测试数据拆分为2部分: test_part_x, test_part_y用作评测
@@ -120,7 +118,7 @@ if __name__ == '__main__':
         test_df_list.append(test_df_tmp)
 
     test_idx_list = [
-        int(np.floor(TEST_RESERVATION_RATIO * len(item))) for item in test_df_list
+        int(np.floor(TEST_DEV_RATIO * len(item))) for item in test_df_list
     ]
 
     test_df_list_part_x, test_df_list_part_y = [], []
