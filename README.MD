@@ -3,7 +3,7 @@
 ---
 ### **作者简介**
 
-作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范。**注意！**本项目对内存要求较大（32G+），Linux环境下需要更大的swap空间支持！（20210831）
+作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范。**注意**！本项目对内存要求较大（32G+），Linux环境下需要更大的swap空间支持！（20210831）
 
 ---
 ### **系统环境依赖**
