@@ -19,7 +19,7 @@ import pandas as pd
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 
-from utils import LoadSave, evaluate_df_score, pr_auc_score
+from utils import LoadSave, evaluate_df_score, pr_auc_score, njit_f1
 
 GLOBAL_RANDOM_SEED = 2021
 ###############################################################################
@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     lgb_params = {'boosting_type': 'gbdt',
                   'objective': 'binary',
-                  'metric': 'custom',
+                  'metric': 'auc',
                   'n_estimators': 10000,
                   'num_leaves': 31,
                   'max_depth': 4,
@@ -129,7 +129,7 @@ if __name__ == '__main__':
             train_feats, train_label,
             eval_set=[(val_feats, val_label)],
             early_stopping_rounds=EARLY_STOPPING_ROUNDS,
-            eval_metric=feval_precision_recall_auc,
+            # eval_metric=feval_precision_recall_auc,
             categorical_feature=[0],
             verbose=0
         )
@@ -173,20 +173,23 @@ if __name__ == '__main__':
     )
 
     print('==================================')
-    print('[INFO] {} LightGBM training end...'.format(
+    print('[INFO] {} LightGBM training end...\n'.format(
         str(datetime.now())[:-4]))
 
     # STAGE 2: 扫描Validation结果，获取最佳切分阈值
     # ----------------
-    decision_threshold_list, best_f1_list = [], []
 
-    for fold in tqdm(range(N_FOLDS)):
+    # Adjusted F1 Score
+    decision_threshold_list_v1, best_f1_list_v1 = [], []
+
+    print('Search for the best Adjusted F1')
+    for fold in range(N_FOLDS):
         decision_threshold_list_tmp = []
         val_df = valid_df_list[fold]
         val_pred_df = val_df.copy()
 
         best_f1, best_threshold = 0, 0
-        for threshold in np.linspace(0.1, 0.9, N_SEARCH):
+        for threshold in np.linspace(0, 1, N_SEARCH):
             val_pred_df['label'] = np.where(
                 val_pred_df['pred_proba'] > threshold, 1, 0
             )
@@ -198,11 +201,41 @@ if __name__ == '__main__':
         print('-- {} folds {}({}), best threshold: {:5f}, best f1: {:.5f}'.format(
             str(datetime.now())[:-4], fold+1, N_FOLDS,
             best_threshold, best_f1))
-        decision_threshold_list.append(best_threshold)
-        best_f1_list.append(best_f1)
+        decision_threshold_list_v1.append(best_threshold)
+        best_f1_list_v1.append(best_f1)
 
-    y_val_score_df['val_total_f1'] = best_f1_list
-    y_val_score_df['val_best_threshold'] = decision_threshold_list
+    y_val_score_df['val_total_f1_v1'] = best_f1_list_v1
+    y_val_score_df['val_best_threshold_v1'] = decision_threshold_list_v1
+
+    # True F1 Score
+    decision_threshold_list_v2, best_f1_list_v2 = [], []
+
+    print('\nSearch for the best F1')
+    for fold in range(N_FOLDS):
+        decision_threshold_list_tmp = []
+        val_df = valid_df_list[fold]
+        val_pred_df = val_df.copy()
+
+        best_f1, best_threshold = 0, 0
+        for threshold in np.linspace(0, 0.9, N_SEARCH):
+            val_pred_df['label'] = np.where(
+                val_pred_df['pred_proba'] > threshold, 1, 0
+            )
+            eval_score = njit_f1(
+                val_df['label'].values, val_pred_df['label'].values
+            )
+
+            if eval_score[0] > best_f1:
+                best_f1 = eval_score[0]
+                best_threshold = threshold
+        print('-- {} folds {}({}), best threshold: {:5f}, best f1: {:.5f}'.format(
+            str(datetime.now())[:-4], fold+1, N_FOLDS,
+            best_threshold, best_f1))
+        decision_threshold_list_v2.append(best_threshold)
+        best_f1_list_v2.append(best_f1)
+
+    y_val_score_df['val_total_f1_v2'] = best_f1_list_v1
+    y_val_score_df['val_best_threshold_v2'] = decision_threshold_list_v2
 
     # STAGE 3: 保存训练好的模型/阈值与训练日志
     # ----------------
@@ -217,4 +250,4 @@ if __name__ == '__main__':
     file_processor = LoadSave(dir_name='../models/')
     file_processor.save_data(
         file_name='{}.pkl'.format(sub_file_name),
-        data_file=[trained_model_list, decision_threshold_list])
+        data_file=[trained_model_list, decision_threshold_list_v1])

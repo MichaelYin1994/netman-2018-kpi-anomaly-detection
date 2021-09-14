@@ -113,25 +113,25 @@ def build_model(verbose=False, is_compile=True, **kwargs):
     )(layer_concat_feats)
 
     x = tf.keras.layers.BatchNormalization()(layer_dense_init)
-    x = tf.keras.layers.Dropout(0.4)(x)
+    # x = tf.keras.layers.Dropout(0.4)(x)
 
     x = tf.keras.layers.Dense(
         units=64, activation='relu'
     )(x)
     x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Dropout(0.4)(x)
+    # x = tf.keras.layers.Dropout(0.4)(x)
 
     x = tf.keras.layers.Dense(
         units=64, activation='relu'
     )(x)
     x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Dropout(0.4)(x)
+    # x = tf.keras.layers.Dropout(0.4)(x)
 
     x = tf.keras.layers.Dense(
         units=128, activation='relu'
     )(x)
     x = tf.keras.layers.BatchNormalization()(x)
-    x = tf.keras.layers.Dropout(0.4)(x)
+    # x = tf.keras.layers.Dropout(0.4)(x)
 
     # Local residual connection
     # -------------------
@@ -142,7 +142,7 @@ def build_model(verbose=False, is_compile=True, **kwargs):
         units=64, activation='relu'
     )(layer_total_feats)
     layer_total_feats = tf.keras.layers.BatchNormalization()(layer_total_feats)
-    layer_total_feats = tf.keras.layers.Dropout(0.4)(layer_total_feats)
+    layer_total_feats = tf.keras.layers.Dropout(0.2)(layer_total_feats)
 
     layer_pred = tf.keras.layers.Dense(
         1, activation='sigmoid', name='layer_output'

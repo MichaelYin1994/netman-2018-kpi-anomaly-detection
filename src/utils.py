@@ -363,18 +363,145 @@ class LiteModel:
         return out[0]
 
 
-StreamDeque_kv_ty = (numba.types.int32, numba.types.float64[:])
-StreamDeque_spec = [
-    ('interval', numba.int32),
-    ('max_time_span', numba.int32),
-    ('deque_timestamp', numba.int64[:]),
-    ('deque_vals', numba.float64[:]),
-    ('deque_size', numba.int32),
-    ('deque_front', numba.int32),
-    ('deque_rear', numba.int32),
-    ('deque_stats', numba.types.DictType(*StreamDeque_kv_ty))
-]
-@jitclass(StreamDeque_spec)
+@njit
+def update_window_degree_bin_count_params(timestamp, sensor_vals,
+                                          start, end, low, high,
+                                          bin_count, interval, max_time_span):
+    # 生成histogram窗口边界
+    bin_range = np.linspace(low, high, len(bin_count) + 1)
+
+    # 计算当前样本的Gradient
+    y_delta = (sensor_vals[end] - sensor_vals[max(end-1, 0)])
+    x_delta = (timestamp[end] - timestamp[max(end-1, 0)]) / interval
+    if x_delta == 0:
+        degree= 0
+    else:
+        degree = np.rad2deg(np.arctan(y_delta / x_delta))
+
+    # 将Gradient映射到bin上去
+    for i in range(1, len(bin_count) + 1):
+        if degree > bin_range[i-1] and degree <= bin_range[i]:
+            bin_count[i-1] += 1
+            break
+
+    # 时间窗口放缩，统计量修正
+    time_gap = timestamp[end] - timestamp[start]
+
+    if time_gap > max_time_span:
+        while(start <= end and time_gap > max_time_span):
+
+            # 统计量更新
+            y_delta = (sensor_vals[min(end, start+1)] - sensor_vals[start])
+            x_delta = (timestamp[min(end, start+1)] - timestamp[start]) / interval
+            if x_delta == 0:
+                degree= 0
+            else:
+                degree = np.rad2deg(np.arctan(y_delta / x_delta))
+
+            for i in range(1, len(bin_count) + 1):
+                if degree > bin_range[i-1] and degree <= bin_range[i]:
+                    bin_count[i-1] -= 1
+                    break
+
+            start += 1
+            time_gap = timestamp[end] - timestamp[start]
+    dist2end = end - start + 1
+
+    return dist2end, bin_count
+
+
+@njit
+def update_window_range_count_params(timestamp, sensor_vals,
+                                     start, end, low, high,
+                                     low_count, high_count, max_time_span):
+    # 时间窗口放缩，统计量修正
+    window_low_count_delta = 0
+    window_high_count_delta = 0
+    time_gap = timestamp[end] - timestamp[start]
+
+    if sensor_vals[end] > high:
+        high_count += 1
+    elif sensor_vals[end] < low:
+        low_count += 1
+
+    if time_gap > max_time_span:
+        while(start <= end and time_gap > max_time_span):
+            if sensor_vals[start] > high:
+                window_high_count_delta -= 1
+            elif sensor_vals[start] < low:
+                window_low_count_delta -= 1
+            start += 1
+            time_gap = timestamp[end] - timestamp[start]
+
+    # 统计量更新
+    dist2end = end - start + 1
+    low_count = low_count + window_low_count_delta
+    high_count = high_count + window_high_count_delta
+
+    return dist2end, low_count, high_count
+
+
+@njit
+def update_window_std_params(timestamp, sensor_vals,
+                             start, end, window_sum, window_squre_sum,
+                             max_time_span):
+    if np.isnan(window_sum):
+        window_sum = np.sum(sensor_vals[start:(end + 1)])
+        window_squre_sum = np.sum(sensor_vals[start:(end + 1)]**2)
+    else:
+        window_sum += sensor_vals[end]
+        window_squre_sum += sensor_vals[end]**2
+
+    # 时间窗口放缩，统计量修正
+    window_sum_delta = 0
+    window_squre_sum_delta = 0
+    time_gap = timestamp[end] - timestamp[start]
+
+    if time_gap > max_time_span:
+        while(start <= end and time_gap > max_time_span):
+            window_sum_delta -= sensor_vals[start]
+            window_squre_sum_delta -= sensor_vals[start]**2
+            start += 1
+            time_gap = timestamp[end] - timestamp[start]
+
+    # 统计量更新
+    dist2end = end - start + 1
+    window_sum = window_sum + window_sum_delta
+    window_squre_sum = window_squre_sum + window_squre_sum_delta
+    std_res = np.sqrt(
+        window_squre_sum / dist2end - (window_sum / dist2end)**2
+    )
+
+    return dist2end, window_sum, window_squre_sum, std_res
+
+
+@njit
+def update_window_mean_params(timestamp, sensor_vals,
+                              start, end, window_sum,
+                              max_time_span):
+    if np.isnan(window_sum):
+        window_sum = np.sum(sensor_vals[start:(end + 1)])
+    else:
+        window_sum += sensor_vals[end]
+
+    # 时间窗口放缩，统计量修正
+    window_sum_delta = 0
+    time_gap = timestamp[end] - timestamp[start]
+
+    if time_gap > max_time_span:
+        while(start <= end and time_gap > max_time_span):
+            window_sum_delta -= sensor_vals[start]
+            start += 1
+            time_gap = timestamp[end] - timestamp[start]
+
+    # 统计量更新
+    dist2end = end - start + 1
+    window_sum = window_sum + window_sum_delta
+    mean_res = window_sum / dist2end
+
+    return dist2end, window_sum, mean_res
+
+
 class StreamDeque():
     '''对于时序流数据（stream data）的高效存储与基础特征抽取方法的实现。
 
@@ -428,14 +555,14 @@ class StreamDeque():
         self.interval = interval
         self.max_time_span = max_time_span
         self.deque_size = int(max_time_span // interval * 2) + 1
-        self.deque_stats = numba.typed.Dict.empty(
-            *StreamDeque_kv_ty
-        )
-        # self.deque_stats =  {}
+        self.deque_stats =  {}
 
         self.deque_timestamp = np.zeros((self.deque_size, ), dtype=np.int64)
         self.deque_vals = np.zeros((self.deque_size, ), dtype=np.float64)
         self.deque_front, self.deque_rear = 0, 0
+
+    def __len__(self):
+        return self.deque_rear - self.deque_front
 
     def push(self, timestep, x):
         '''将一组元素入队，并且依据deque尾部与首部的元素时间戳，调整deque指针'''
@@ -456,28 +583,18 @@ class StreamDeque():
         self.deque_rear += 1
 
     def update(self):
-        '''若队满，则动态调整队列数组内存空间'''
+        '''若deque满，则动态调整队列数组内存空间'''
         if self.is_full():
             rear = len(self.deque_timestamp[self.deque_front:])
 
-            # new_deque_timestamp = np.zeros(
-            #     (self.deque_size, ), dtype=np.int64
-            # )
-            # new_deque_timestamp[:rear] = self.deque_timestamp[self.deque_front:]
-            # self.deque_timestamp = new_deque_timestamp
-
+            # 原地调整空间，防止内存泄漏
             self.deque_timestamp[:rear] = self.deque_timestamp[self.deque_front:]
             self.deque_timestamp[rear:] = 0
 
             self.deque_vals[:rear] = self.deque_vals[self.deque_front:]
             self.deque_vals[rear:] = 0.0
 
-            # new_deque_vals = np.zeros(
-            #     (self.deque_size, ), dtype=np.float64
-            # )
-            # new_deque_vals[:rear] = self.deque_vals[self.deque_front:]
-            # self.deque_vals = new_deque_vals
-
+            # 更新头尾指针
             self.deque_front, self.deque_rear = 0, rear
 
     def is_full(self):
@@ -488,9 +605,6 @@ class StreamDeque():
         '''检查window_size参数是否合法'''
         if window_size > self.max_time_span or window_size < self.interval:
             raise ValueError('Invalid input window size !')
-
-    def __len__(self):
-        return self.deque_rear - self.deque_front
 
     def get_values(self):
         return self.deque_vals[self.deque_front:self.deque_rear]
@@ -515,7 +629,7 @@ class StreamDeque():
         end = int(self.deque_rear - 1)
 
         # 重新计算参数
-        dist2end, window_sum, mean_res = self.compute_window_mean(
+        dist2end, window_sum, mean_res = update_window_mean_params(
             self.deque_timestamp,
             self.deque_vals,
             start, end, window_sum, window_size
@@ -547,7 +661,7 @@ class StreamDeque():
         end = int(self.deque_rear - 1)
 
         # 重新计算参数
-        dist2end, window_sum, window_squre_sum, mean_res = self.compute_window_std(
+        dist2end, window_sum, window_squre_sum, mean_res = update_window_std_params(
             self.deque_timestamp,
             self.deque_vals,
             start, end, window_sum, window_squre_sum, window_size
@@ -588,7 +702,7 @@ class StreamDeque():
         end = int(self.deque_rear - 1)
 
         # 重新计算参数
-        dist2end, low_count, high_count = self.compute_window_range_count(
+        dist2end, low_count, high_count = update_window_range_count_params(
             self.deque_timestamp,
             self.deque_vals,
             start, end, low, high,
@@ -627,7 +741,7 @@ class StreamDeque():
         end = int(self.deque_rear - 1)
 
         # 重新计算参数
-        dist2end, bin_count = self.compute_window_degree_bin_count(
+        dist2end, bin_count = update_window_degree_bin_count_params(
             self.deque_timestamp,
             self.deque_vals,
             start, end, low, high,
@@ -657,134 +771,3 @@ class StreamDeque():
 
     def get_window_min(self):
         pass
-
-    def compute_window_degree_bin_count(self, timestamp, sensor_vals,
-                                        start, end, low, high,
-                                        bin_count, interval, max_time_span):
-        # 生成histogram窗口边界
-        bin_range = np.linspace(low, high, len(bin_count) + 1)
-
-        # 计算当前样本的Gradient
-        y_delta = (sensor_vals[end] - sensor_vals[max(end-1, 0)])
-        x_delta = (timestamp[end] - timestamp[max(end-1, 0)]) / interval
-        if x_delta == 0:
-            degree= 0
-        else:
-            degree = np.rad2deg(np.arctan(y_delta / x_delta))
-
-        # 将Gradient映射到bin上去
-        for i in range(1, len(bin_count) + 1):
-            if degree > bin_range[i-1] and degree <= bin_range[i]:
-                bin_count[i-1] += 1
-                break
-
-        # 时间窗口放缩，统计量修正
-        time_gap = timestamp[end] - timestamp[start]
-
-        if time_gap > max_time_span:
-            while(start <= end and time_gap > max_time_span):
-
-                # 统计量更新
-                y_delta = (sensor_vals[min(end, start+1)] - sensor_vals[start])
-                x_delta = (timestamp[min(end, start+1)] - timestamp[start]) / interval
-                if x_delta == 0:
-                    degree= 0
-                else:
-                    degree = np.rad2deg(np.arctan(y_delta / x_delta))
-
-                for i in range(1, len(bin_count) + 1):
-                    if degree > bin_range[i-1] and degree <= bin_range[i]:
-                        bin_count[i-1] -= 1
-                        break
-
-                start += 1
-                time_gap = timestamp[end] - timestamp[start]
-        dist2end = end - start + 1
-
-        return dist2end, bin_count
-
-    def compute_window_range_count(self, timestamp, sensor_vals,
-                                   start, end, low, high,
-                                   low_count, high_count, max_time_span):
-        # 时间窗口放缩，统计量修正
-        window_low_count_delta = 0
-        window_high_count_delta = 0
-        time_gap = timestamp[end] - timestamp[start]
-
-        if sensor_vals[end] > high:
-            high_count += 1
-        elif sensor_vals[end] < low:
-            low_count += 1
-
-        if time_gap > max_time_span:
-            while(start <= end and time_gap > max_time_span):
-                if sensor_vals[start] > high:
-                    window_high_count_delta -= 1
-                elif sensor_vals[start] < low:
-                    window_low_count_delta -= 1
-                start += 1
-                time_gap = timestamp[end] - timestamp[start]
-
-        # 统计量更新
-        dist2end = end - start + 1
-        low_count = low_count + window_low_count_delta
-        high_count = high_count + window_high_count_delta
-
-        return dist2end, low_count, high_count
-
-    def compute_window_std(self, timestamp, sensor_vals,
-                           start, end, window_sum, window_squre_sum,
-                           max_time_span):
-        if np.isnan(window_sum):
-            window_sum = np.sum(sensor_vals[start:(end + 1)])
-            window_squre_sum = np.sum(sensor_vals[start:(end + 1)]**2)
-        else:
-            window_sum += sensor_vals[end]
-            window_squre_sum += sensor_vals[end]**2
-
-        # 时间窗口放缩，统计量修正
-        window_sum_delta = 0
-        window_squre_sum_delta = 0
-        time_gap = timestamp[end] - timestamp[start]
-
-        if time_gap > max_time_span:
-            while(start <= end and time_gap > max_time_span):
-                window_sum_delta -= sensor_vals[start]
-                window_squre_sum_delta -= sensor_vals[start]**2
-                start += 1
-                time_gap = timestamp[end] - timestamp[start]
-
-        # 统计量更新
-        dist2end = end - start + 1
-        window_sum = window_sum + window_sum_delta
-        window_squre_sum = window_squre_sum + window_squre_sum_delta
-        std_res = np.sqrt(
-            window_squre_sum / dist2end - (window_sum / dist2end)**2
-        )
-
-        return dist2end, window_sum, window_squre_sum, std_res
-
-    def compute_window_mean(self, timestamp, sensor_vals,
-                            start, end, window_sum,
-                            max_time_span):
-        if np.isnan(window_sum):
-            window_sum = np.sum(sensor_vals[start:(end + 1)])
-        else:
-            window_sum += sensor_vals[end]
-
-        # 时间窗口放缩，统计量修正
-        window_sum_delta = 0
-        time_gap = timestamp[end] - timestamp[start]
-
-        if time_gap > max_time_span:
-            while(start <= end and time_gap > max_time_span):
-                window_sum_delta -= sensor_vals[start]
-                start += 1
-                time_gap = timestamp[end] - timestamp[start]
-
-        # 统计量更新
-        dist2end = end - start + 1
-        window_sum = window_sum + window_sum_delta
-        mean_res = window_sum / dist2end
-
-        return dist2end, window_sum, mean_res
