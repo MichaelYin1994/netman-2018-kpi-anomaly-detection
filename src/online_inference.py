@@ -9,6 +9,7 @@
 '''
 本模块(online_inference.py)按离散点的形式，发送流数据，并使用Trained Model进行流式推理。
 '''
+
 import gc
 import warnings
 from datetime import datetime
@@ -34,10 +35,10 @@ sns.set(style="ticks", font_scale=1.2, palette='deep', color_codes=True)
 ###############################################################################
 
 if __name__ == '__main__':
-    IS_VISUALIZING = True
-    KPI_ID_TO_INFERENCE = 9  # kpi_id \in [0. 28]
+    IS_VISUALIZING = False
+    KPI_ID_TO_INFERENCE = 12  # kpi_id \in [0. 28]
     TEST_FILE_NAME = 'test_df_part_x.pkl'  # test_df_part_x, test_df_part_y, test_df
-    MODEL_FILE_NAME = '13_lgb_nfolds_5_valprauc_51925_valrocauc_911087.pkl'
+    MODEL_FILE_NAME = '15_lgb_nfolds_5_valprauc_424295_valrocauc_912195.pkl'
 
     # 载入test_df数据
     # ----------------
@@ -87,7 +88,7 @@ if __name__ == '__main__':
         ax.tick_params(axis="both", labelsize=10)
         plt.tight_layout()
 
-    predicted_label_list, infer_count, prev = [], 0, None
+    predicted_label_list, infer_count, plot_count, prev = [], 0, 0, None
     for data_pack in tqdm(test_df.values):
 
         # 抽取(timestamp, value)信息与标签信息
@@ -105,36 +106,75 @@ if __name__ == '__main__':
                 zip(trained_models_list[-2:], decision_threshold_list[-2:])
             ):
             test_pred_proba_list_tmp.append(model.predict_proba(
-                real_time_feats, num_iteration=model.best_iteration_
+                real_time_feats, num_iteration=model.best_iteration_, n_jobs=1
             )[:, 1])
+            test_pred_label = test_pred_proba_list_tmp[-1] > threshold
+        predicted_label_list.append(test_pred_label)
 
         # 可视化
-
         if IS_VISUALIZING:
             # First point
             if prev is None:
-                prev = data_pack[-1]
+                prev = data_pack[2]
                 infer_count += 1
                 continue
 
             # plot curve
             curr = data_pack[2]
 
-            if true_label == 0:
-                lines = ax.plot(
-                    [infer_count-1, infer_count], [prev, curr],
-                    marker='o', markersize=4.5, color='k', linestyle='--'
-                )
-            else:
+            if true_label == 1 and test_pred_label == 0:
                 lines = ax.plot(
                     [infer_count-1, infer_count], [prev, curr],
                     marker='o', markersize=4.5, color='r', linestyle='--'
-                )                
+                )
+                plot_count += 1
+
             prev = curr
             ax.set_xlim(max(0, infer_count - 200), infer_count)
             plt.pause(0.0001)
 
-            if infer_count > 200:
+            if plot_count > 200:
                 ax.lines.pop(0)
 
         infer_count += 1
+
+    # 模拟按时间戳发送test数据
+    # ----------------
+    fig, ax = plt.subplots(figsize=(18, 6))
+
+    ax.grid(True)
+    ax.set_ylim(
+        test_df['value'].values.min() - test_df['value'].values.min() * 0.1,
+        test_df['value'].values.max() + test_df['value'].values.max() * 0.1
+    )
+    ax.set_xlim(0, len(test_df))
+    ax.set_xlabel('Timestamp', fontsize=10)
+    ax.set_ylabel('Value', fontsize=10)
+    ax.set_title(
+        'Real-time detection on KPI: {}'.format(KPI_ID_TO_INFERENCE),
+        fontsize=10)
+    ax.tick_params(axis="both", labelsize=10)
+    plt.tight_layout()
+
+    # plot kpi curve
+    ax.plot(
+        np.arange(0, len(test_df)), test_df['value'].values, label='value',
+        marker='.', markersize=4.5, color='k', linestyle='--'
+    )
+
+    # plot anomalies
+    anomalies_idx = np.arange(0, len(test_df))[test_df['label'].values == 1]
+    anomalies_pts = test_df['value'].values[test_df['label'].values == 1]
+    ax.plot(anomalies_idx, anomalies_pts,
+            linestyle=' ', markersize=5.5,
+            color='r', marker='s', label="Anomaly")
+
+    # plot predicted anomalies
+    predicted_label = np.array(predicted_label_list).astype(int).ravel()
+    anomalies_idx = np.arange(0, len(test_df))[predicted_label == 1]
+    anomalies_pts = test_df['value'].values[predicted_label == 1]
+    ax.plot(anomalies_idx, anomalies_pts,
+            linestyle=' ', markersize=4.5,
+            color='g', marker='o', label="Predicted Anomaly")
+
+    ax.legend(fontsize=10)

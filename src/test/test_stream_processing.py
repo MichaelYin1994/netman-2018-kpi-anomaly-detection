@@ -63,6 +63,7 @@ if __name__ == '__main__':
     df = generate_simulation_data(n_points=N_POINTS, min_interval=MIN_INTERVAL)
     df['value'] = (df['value'] - df['value'].mean()) / df['value'].std()
 
+    '''
     # 流式抽取统计特征
     # *******************
     stream_deque = StreamDeque(
@@ -100,3 +101,4 @@ if __name__ == '__main__':
         # )
         # 空间拓展
         stream_deque.update()
+    '''

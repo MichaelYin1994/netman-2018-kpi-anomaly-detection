@@ -47,25 +47,24 @@ def compute_kpi_feats_single_step(data_pack, stream_deque):
     # *************
     stream_deque.push(timestep, sensor_val)
 
-    # 统计特征抽取
+    # Stream统计特征抽取
     # *************
-
     # 计算滑窗均值
-    for window_minutes in [5, 10, 16, 32, 60, 120, 240, 360, 720, 1440]:
+    for window_minutes in [5, 10, 16, 32]:
         tmp_feats.append(
             stream_deque.get_window_mean(int(window_minutes * 60))
         )
 
     # 计算滑窗标准差
-    for window_minutes in [5, 10, 16, 32, 60, 120, 240, 360, 720, 1440]:
+    for window_minutes in [5, 10, 16, 32]:
         tmp_feats.append(
             stream_deque.get_window_std(int(window_minutes * 60))
         )
 
     # value shift
-    for n_shift in [i for i in range(256)]:
+    for n_shift in [i for i in range(64)]:
         tmp_feats.append(
-            stream_deque.get_window_shift(n_shift)
+            (stream_deque.get_window_shift(n_shift) - sensor_val) / (1 + sensor_val)
         )
 
     # Moving Average
@@ -73,6 +72,9 @@ def compute_kpi_feats_single_step(data_pack, stream_deque):
 
     # EWMA
 
+    # Segment
+    # *************
+    
 
     # 更新deque参数
     # *************
@@ -81,7 +83,7 @@ def compute_kpi_feats_single_step(data_pack, stream_deque):
     return tmp_feats
 
 
-def compute_kpi_feats_df(df):
+def compute_kpi_feats_df(df, stream_deque=None):
     '''训练数据特征构造接口'''
 
     # 基础元信息记录
@@ -94,10 +96,11 @@ def compute_kpi_feats_df(df):
 
     # 数据入队 + 特征抽取
     # ----------------
-    stream_deque = StreamDeque(
-        interval=min_interval,
-        max_time_span=int(5 * 24 * 3600)  # 5 days
-    )
+    if stream_deque is None:
+        stream_deque = StreamDeque(
+            interval=min_interval,
+            max_time_span=int(5 * 24 * 3600)  # 5 days
+        )
 
     total_stat_feats = []
     for data_pack in df.values:
