@@ -114,7 +114,8 @@ if __name__ == '__main__':
     print('-- train shape: {}, total folds: {}'.format(
         (np.sum([len(df) for df in train_feats_list]),
          train_feats_list[0].shape[1]),
-        N_FOLDS))
+        N_FOLDS)
+    )
 
     for fold, train_df, val_df in generator_tscv(train_feats_list, N_FOLDS):
         train_feats = train_df.drop(['label', 'timestamp'], axis=1).values

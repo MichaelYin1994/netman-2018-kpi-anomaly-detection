@@ -140,6 +140,7 @@ if __name__ == '__main__':
 
     # 模拟按时间戳发送test数据
     # ----------------
+    plt.close('all')
     fig, ax = plt.subplots(figsize=(18, 6))
 
     ax.grid(True)

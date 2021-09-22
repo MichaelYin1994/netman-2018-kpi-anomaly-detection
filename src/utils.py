@@ -758,6 +758,12 @@ class StreamDeque():
 
         return count_res
 
+    def get_window_values(self, window_size):
+        pass
+
+    def get_window_timestamp(self, window_size):
+        pass
+
     def get_window_weighted_mean(self, window_size, weight_array):
         '''计算指定window_size内的带权平均值'''
         pass
