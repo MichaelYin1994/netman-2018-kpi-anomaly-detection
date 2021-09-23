@@ -502,6 +502,23 @@ def update_window_mean_params(timestamp, sensor_vals,
     return dist2end, window_sum, mean_res
 
 
+@njit
+def update_window_params(timestamp, sensor_vals,
+                         start, end, max_time_span):
+    # 时间窗口放缩，统计量修正
+    time_gap = timestamp[end] - timestamp[start]
+
+    if time_gap > max_time_span:
+        while(start <= end and time_gap > max_time_span):
+            start += 1
+            time_gap = timestamp[end] - timestamp[start]
+
+    # 统计量更新
+    dist2end = end - start + 1
+
+    return dist2end
+
+
 class StreamDeque():
     '''对于时序流数据（stream data）的高效存储与基础特征抽取方法的实现。
 
@@ -611,6 +628,35 @@ class StreamDeque():
 
     def get_timestamp(self):
         return self.deque_timestamp[self.deque_front:self.deque_rear]
+
+    def get_window_timestamp_values(self, window_size):
+        '''获取指定window_size内的(timestamp, value)数组'''
+        self.check_window_size(window_size)
+
+        # 载入stream参数（加法hash计算索引）
+        field_name = hash(window_size) - 1
+
+        if field_name in self.deque_stats:
+            dist2end = self.deque_stats[field_name]
+        else:
+            dist2end = self.deque_rear - self.deque_front - 1
+
+        start = int(self.deque_rear - dist2end - 1)
+        end = int(self.deque_rear - 1)
+
+        # 更新窗口参数
+        dist2end = update_window_params(
+            self.deque_timestamp,
+            self.deque_vals,
+            start, end, window_size
+        )
+
+        # 更新预置参数
+        new_params = np.array(
+            [dist2end], dtype=np.int64
+        )
+
+        return end - dist2end + 1
 
     def get_window_mean(self, window_size=120):
         '''抽取window_size范围内的mean统计量'''
@@ -757,12 +803,6 @@ class StreamDeque():
         count_res = bin_count / dist2end
 
         return count_res
-
-    def get_window_values(self, window_size):
-        pass
-
-    def get_window_timestamp(self, window_size):
-        pass
 
     def get_window_weighted_mean(self, window_size, weight_array):
         '''计算指定window_size内的带权平均值'''

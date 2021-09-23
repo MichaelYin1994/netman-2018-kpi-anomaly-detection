@@ -10,24 +10,30 @@
 本模块(test_stream_processing_v2.py)用于测试流特征工程的正确性。
 '''
 
-import time
+
+import sys
+sys.path.append('..')
+
 import warnings
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
-import numba
 from numba import njit
-from numba.experimental import jitclass
+from statsmodels.tsa.seasonal import seasonal_decompose
+import matplotlib.pyplot as plt
 
 # 设定全局随机种子，并且屏蔽warnings
 GLOBAL_RANDOM_SEED = 2021
 np.random.seed(GLOBAL_RANDOM_SEED)
 warnings.filterwarnings('ignore')
 
-###############################################################################
 def generate_simulation_data(n_points=10000, min_interval=20):
-    '''生成kpi仿真数据'''
-    sensor_vals = np.random.random(n_points)
+    '''生成KPI仿真数据'''
+    sensor_vals = np.linspace(0, np.pi * 10.75, n_points, endpoint=False)
+    sensor_vals = np.cos(sensor_vals) + np.sin(sensor_vals * 5) * 0.2
+    sensor_vals += np.cos(sensor_vals * 2) * 2.2
+    sensor_vals += np.random.uniform(-2, 1, n_points)
+
     timestamp = np.array(
         [i * min_interval for i in range(4 * n_points)], dtype=np.int64
     )
@@ -49,25 +55,34 @@ def generate_simulation_data(n_points=10000, min_interval=20):
 
 
 @njit
-def compute_window_mean(timestamp, sensor_vals,
-                        start, end, window_sum, max_time_span):
-    if np.isnan(window_sum):
-        window_sum = np.sum(sensor_vals[start:(end + 1)])
-    else:
-        window_sum += sensor_vals[end]
-
-    # 时间窗口放缩，统计量修正
-    window_sum_delta = 0
+def shrink_window_time_span(timestamp, start, end, max_time_span):
+    '''收缩串口窗口到指定允许时间窗口范围'''
     time_gap = timestamp[end] - timestamp[start]
 
     if time_gap > max_time_span:
         while(start <= end and time_gap > max_time_span):
-            window_sum_delta -= sensor_vals[start]
             start += 1
             time_gap = timestamp[end] - timestamp[start]
 
+    return start, end
+
+
+@njit
+def update_window_mean_params(sensor_vals, old_start, old_end,
+                              new_start, new_end, window_sum):
+    if np.isnan(window_sum):
+        window_sum = np.sum(sensor_vals[old_start:(old_end + 1)])
+    else:
+        window_sum += sensor_vals[new_end]
+
+    # 统计量修正
+    window_sum_delta = 0
+
+    for i in range(old_start, new_start):
+        window_sum_delta -= sensor_vals[i]
+
     # 统计量更新
-    dist2end = end - start + 1
+    dist2end = new_end - new_start + 1
     window_sum = window_sum + window_sum_delta
     mean_res = window_sum / dist2end
 
@@ -75,30 +90,25 @@ def compute_window_mean(timestamp, sensor_vals,
 
 
 @njit
-def compute_window_std(timestamp, sensor_vals,
-                       start, end, window_sum, window_squre_sum,
-                       max_time_span):
+def update_window_std_params(sensor_vals, old_start, old_end,
+                             new_start, new_end, window_sum, window_squre_sum):
     if np.isnan(window_sum):
-        window_sum = np.sum(sensor_vals[start:(end + 1)])
-        window_squre_sum = np.sum(sensor_vals[start:(end + 1)]**2)
+        window_sum = np.sum(sensor_vals[old_start:(old_end + 1)])
+        window_squre_sum = np.sum(sensor_vals[old_start:(old_end + 1)]**2)
     else:
-        window_sum += sensor_vals[end]
-        window_squre_sum += sensor_vals[end]**2
+        window_sum += sensor_vals[new_end]
+        window_squre_sum += sensor_vals[new_end]**2
 
-    # 时间窗口放缩，统计量修正
+    # 统计量修正
     window_sum_delta = 0
     window_squre_sum_delta = 0
-    time_gap = timestamp[end] - timestamp[start]
 
-    if time_gap > max_time_span:
-        while(start <= end and time_gap > max_time_span):
-            window_sum_delta -= sensor_vals[start]
-            window_squre_sum_delta -= sensor_vals[start]**2
-            start += 1
-            time_gap = timestamp[end] - timestamp[start]
+    for i in range(old_start, new_start):
+        window_sum_delta -= sensor_vals[i]
+        window_squre_sum_delta -= sensor_vals[i]**2
 
     # 统计量更新
-    dist2end = end - start + 1
+    dist2end = new_end - new_start + 1
     window_sum = window_sum + window_sum_delta
     window_squre_sum = window_squre_sum + window_squre_sum_delta
     std_res = np.sqrt(
@@ -108,67 +118,46 @@ def compute_window_std(timestamp, sensor_vals,
     return dist2end, window_sum, window_squre_sum, std_res
 
 
-StreamDeque_kv_ty = (numba.types.int32, numba.types.float64[:])
-StreamDeque_spec = [
-    ('interval', numba.int32),
-    ('max_time_span', numba.int32),
-    ('deque_timestamp', numba.int64[:]),
-    ('deque_vals', numba.float64[:]),
-    ('deque_size', numba.int32),
-    ('deque_front', numba.int32),
-    ('deque_rear', numba.int32),
-    ('deque_stats', numba.types.DictType(*StreamDeque_kv_ty))
-]
-@jitclass(StreamDeque_spec)
+def update_window_range_count_params(sensor_vals, old_start, old_end,
+                                     new_start, new_end,
+                                     low, high, low_count, high_count):
+
+    if sensor_vals[new_end] > high:
+         high_count += 1
+    elif sensor_vals[new_end] < low:
+        low_count += 1
+
+    # 时间窗口放缩，统计量修正
+    window_low_count_delta = 0
+    window_high_count_delta = 0
+
+    for i in range(old_start, new_start):
+        if sensor_vals[i] > high:
+            window_high_count_delta -= 1
+        elif sensor_vals[i] < low:
+            window_low_count_delta -= 1
+
+    # 统计量更新
+    dist2end = new_end - new_start + 1
+    low_count = low_count + window_low_count_delta
+    high_count = high_count + window_high_count_delta
+
+    return dist2end, low_count, high_count
+
+
 class StreamDeque():
-    '''对于时序流数据（stream data）的高效存储与基础特征抽取方法的实现。
-
-    采用numpy array模拟deque，deque保存指定时间区间范围内的时序值。每当时间
-    范围不满足条件的时候，通过指针移动模拟队尾元素出队；当array满的时候，
-    动态重新分配deque的内存空间。
-
-    我们实现的ArrayDeque在设计时便考虑了数据流时间戳不均匀的问题，通过移动指针
-    的方式高效的实现元素的入队和出队，保证deque内只有指定时间范围内的时序数据。
-
-    ArrayDeque的实现中，同时设计了多种针对流数据的特征抽取算法。包括：
-    - 给定时间窗口内均值(mean)抽取算法。
-    - 给定时间窗口内标准差(std)抽取算法。
-
-    @Attributes:
-    ----------
-    interval: {int-like}
-        元素与元素之间最小的时间间隔单位，默认为秒。
-    max_time_span: {int-like}
-        deque首元素与尾元素最大允许时间差，默认单位为秒。
-    deque_timestamp: {array-like}
-        用于存储unix时间戳的数组，模拟双端队列。
-    deque_vals: {array-like}
-        用于存储实际传感器读数的数组，模拟双端队列。
-    deque_size: {int-like}
-        deque的大小。
-    deque_front: {int-like}
-        用于模拟deque范围的deque的头指针。
-    deque_rear: {int-like}
-        用于模拟deque范围的deque的尾指针，永远指向deque最后一个有值元素索引的
-        下一个元素索引。
-    deque_stats: {dict-like}
-        deque内部不同时间范围的基础统计量。
-
-    @References:
-    ----------
-    [1] https://www.kaggle.com/lucasmorin/running-algos-fe-for-fast-inference
-    '''
     def __init__(self, interval=20, max_time_span=3600):
         self.interval = interval
         self.max_time_span = max_time_span
         self.deque_size = int(max_time_span // interval * 2) + 1
-        self.deque_stats = numba.typed.Dict.empty(
-            *StreamDeque_kv_ty
-        )
+        self.deque_stats =  {}
 
         self.deque_timestamp = np.zeros((self.deque_size, ), dtype=np.int64)
         self.deque_vals = np.zeros((self.deque_size, ), dtype=np.float64)
         self.deque_front, self.deque_rear = 0, 0
+
+    def __len__(self):
+        return self.deque_rear - self.deque_front
 
     def push(self, timestep, x):
         '''将一组元素入队，并且依据deque尾部与首部的元素时间戳，调整deque指针'''
@@ -177,34 +166,29 @@ class StreamDeque():
         self.deque_vals[self.deque_rear] = x
 
         # 不满足deque时间窗需求，收缩deque范围
-        front, rear = self.deque_front, self.deque_rear
+        new_start, _ = shrink_window_time_span(
+            self.deque_timestamp,
+            self.deque_front,
+            self.deque_rear,
+            self.max_time_span
+        )
 
-        time_gap = self.deque_timestamp[rear] - self.deque_timestamp[front]
-        if time_gap > self.max_time_span:
-            while(front <= rear and time_gap > self.max_time_span):
-                front += 1
-                time_gap = self.deque_timestamp[rear] - self.deque_timestamp[front]
-
-        self.deque_front = front
+        self.deque_front = new_start
         self.deque_rear += 1
 
     def update(self):
-        '''若队满，则动态调整队列数组内存空间'''
+        '''若deque满，则动态调整队列数组内存空间'''
         if self.is_full():
             rear = len(self.deque_timestamp[self.deque_front:])
 
-            new_deque_timestamp = np.zeros(
-                (self.deque_size, ), dtype=np.int64
-            )
-            new_deque_timestamp[:rear] = self.deque_timestamp[self.deque_front:]
-            self.deque_timestamp = new_deque_timestamp
+            # 原地调整空间，防止内存泄漏
+            self.deque_timestamp[:rear] = self.deque_timestamp[self.deque_front:]
+            self.deque_timestamp[rear:] = 0
 
-            new_deque_vals = np.zeros(
-                (self.deque_size, ), dtype=np.float64
-            )
-            new_deque_vals[:rear] = self.deque_vals[self.deque_front:]
-            self.deque_vals = new_deque_vals
+            self.deque_vals[:rear] = self.deque_vals[self.deque_front:]
+            self.deque_vals[rear:] = 0.0
 
+            # 更新头尾指针
             self.deque_front, self.deque_rear = 0, rear
 
     def is_full(self):
@@ -216,20 +200,11 @@ class StreamDeque():
         if window_size > self.max_time_span or window_size < self.interval:
             raise ValueError('Invalid input window size !')
 
-    def __len__(self):
-        return self.deque_rear - self.deque_front
-
-    def get_values(self):
-        return self.deque_vals[self.deque_front:self.deque_rear]
-
-    def get_timestamp(self):
-        return self.deque_timestamp[self.deque_front:self.deque_rear]
-
-    def get_window_mean(self, window_size=120):
+    def get_window_mean(self, window_size):
         '''抽取window_size范围内的mean统计量'''
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + 0
 
         if field_name in self.deque_stats:
@@ -241,63 +216,217 @@ class StreamDeque():
         start = int(self.deque_rear - dist2end - 1)
         end = int(self.deque_rear - 1)
 
-        # 重新计算参数
-        dist2end, window_sum, mean_res = compute_window_mean(
-            self.deque_timestamp,
-            self.deque_vals,
-            start, end, window_sum, window_size
+        # 重新计算窗口参数
+        new_start, new_end = shrink_window_time_span(
+            self.deque_timestamp, start, end, self.max_time_span
+        )
+
+        # 更新窗口统计量
+        dist2end, window_sum, mean_res = update_window_mean_params(
+            self.deque_vals, start, end, new_start, new_end, window_sum
         )
 
         # 更新预置参数
-        new_params = np.array(
-            [dist2end, window_sum], dtype=np.float64
-        )
+        new_params = [dist2end, window_sum]
         self.deque_stats[field_name] = new_params
 
         return mean_res
 
-    def get_window_std(self, window_size=120):
-        '''抽取window_size范围内std统计量'''
+    def get_window_std(self, window_size):
+        '''抽取window_size范围内的mean统计量'''
         self.check_window_size(window_size)
 
-        # 载入stream参数
+        # 载入stream参数（加法hash计算索引）
         field_name = hash(window_size) + 1
 
         if field_name in self.deque_stats:
             dist2end, window_sum, window_squre_sum = self.deque_stats[field_name]
         else:
-            window_sum = np.nan
-            window_squre_sum = np.nan
+            window_sum, window_squre_sum = np.nan, np.nan
             dist2end = self.deque_rear - self.deque_front - 1
 
         start = int(self.deque_rear - dist2end - 1)
         end = int(self.deque_rear - 1)
 
-        # 重新计算参数
-        dist2end, window_sum, window_squre_sum, mean_res = compute_window_std(
-            self.deque_timestamp,
-            self.deque_vals,
-            start, end, window_sum, window_squre_sum, window_size
+        # 重新计算窗口参数
+        new_start, new_end = shrink_window_time_span(
+            self.deque_timestamp, start, end, self.max_time_span
+        )
+
+        # 更新窗口统计量
+        dist2end, window_sum, window_squre_sum, std_res = update_window_std_params(
+            self.deque_vals, start, end, new_start, new_end, window_sum, window_squre_sum
         )
 
         # 更新预置参数
-        new_params = np.array(
-            [dist2end, window_sum, window_squre_sum], dtype=np.float64
-        )
+        new_params = [dist2end, window_sum, window_squre_sum]
         self.deque_stats[field_name] = new_params
 
-        return mean_res
+        return std_res
+
+    def get_window_range_count_ratio(self, window_size, low, high):
+        '''抽取window_size内的位于low与high闭区间内部数据的比例'''
+        # 输入检查
+        if low > high:
+            raise ValueError('Invalid value range !')
+        self.check_window_size(window_size)
+
+        # 载入stream参数（加法hash计算索引）
+        field_name = hash(window_size) + hash(low) + hash(high)
+
+        if field_name in self.deque_stats:
+            dist2end, low_count, high_count = self.deque_stats[field_name]
+        else:
+            low_count, high_count = 0, 0
+            dist2end = self.deque_rear - self.deque_front - 1
+
+        start = int(self.deque_rear - dist2end - 1)
+        end = int(self.deque_rear - 1)
+
+        # 重新计算窗口参数
+        new_start, new_end = shrink_window_time_span(
+            self.deque_timestamp, start, end, self.max_time_span
+        )
+
+        # 重新计算参数
+        dist2end, low_count, high_count = update_window_range_count_params(
+            self.deque_timestamp,
+            self.deque_vals,
+            start, end, low, high,
+            low_count, high_count, window_size
+        )
+
+        # 更新预置参数
+        new_params = [dist2end, low_count, high_count]
+        self.deque_stats[field_name] = new_params
+        count_precent = (dist2end - low_count - high_count) / dist2end
+
+        return count_precent
+
+    def get_n_shift(self, n_shift):
+        '''抽取当前时刻给定上n_shift个timestep的数据的值'''
+        if n_shift < 0:
+            raise ValueError('Invalid n_shift parameter !')
+
+        if n_shift > (self.deque_rear - self.deque_front):
+            return np.nan
+        else:
+            return self.deque_vals[self.deque_rear - n_shift - 1]
+
+    def get_window_timestamp_values(self, window_size):
+        '''抽取指定window_size内的(timestamp, value)数组'''
+        self.check_window_size(window_size)
+
+        # 载入stream参数（加法hash计算索引）
+        field_name = hash(window_size) - 65536
+
+        if field_name in self.deque_stats:
+            dist2end = self.deque_stats[field_name]
+        else:
+            dist2end = self.deque_rear - self.deque_front - 1
+
+        start = int(self.deque_rear - dist2end - 1)
+        end = int(self.deque_rear - 1)
+
+        # 重新计算窗口参数
+        new_start, new_end = shrink_window_time_span(
+            self.deque_timestamp, start, end, window_size
+        )
+        dist2end = new_end - new_start + 1
+
+        # 更新预置参数
+        self.deque_stats[field_name] = dist2end
+
+        window_timestamp = self.deque_timestamp[new_start:self.deque_rear]
+        window_sensor_vals = self.deque_vals[new_start:self.deque_rear]
+
+        return window_timestamp, window_sensor_vals
+
+    def get_prediction_exponential_weighted_mean(self, alpha=0.25, alpha_type=0):
+        # aplha_type:
+        # 0: ordinary alpha
+        # 1: span
+        # 2: Center of life
+        # 3: Half-life
+        if alpha_type == 1:
+            if alpha < 1:
+                raise ValueError('Invalid span parameter '
+                                 '(\alpha should >= 1)!')
+            alpha = 2 / (alpha + 2)
+        elif alpha_type == 2:
+            if alpha < 0:
+                raise ValueError('Invalid center of mass'
+                                 ' parameter (\alpha should >= 0)!')
+                alpha = 1 / (1 + alpha)
+        elif alpha_type == 3:
+            if alpha < 0:
+                raise ValueError('Invalid half of life'
+                                 ' parameter (\alpha should >= 0)!')
+            alpha = 1 - np.exp(np.log(0.5) / alpha)
+
+        # 载入stream参数（加法hash计算索引）
+        field_name = hash(alpha) + hash(alpha_type)
+
+        if field_name in self.deque_stats:
+            y_hat_t_1 = self.deque_stats[field_name]
+        else:
+            y_hat_t_1 = 0
+
+        if len(self) == 1:
+            y_t_1 = 1 / alpha * self.deque_vals[self.deque_front]
+        else:
+            y_t_1 = self.get_n_shift(1)
+
+        # prediction
+        y_hat_t = alpha * y_t_1 + (1 - alpha) * y_hat_t_1
+
+        # 更新预置参数
+        self.deque_stats[field_name] = y_hat_t
+
+        return y_hat_t
+
+    def get_prediction_holt(self, alpha, beta):
+        pass
+
+        # 计算alpha值
+
+        # 载入stream参数（加法hash计算索引）
+        # x_{t-1}, l_{t-1|t-2}
+
+    def get_prediction_holt_windters(self, alpha, beta, gamma):
+        pass
 
 
 if __name__ == '__main__':
     # 生成kpi仿真数据（单条kpi曲线）
     # *******************
-    N_POINTS = 3000000
-    MIN_INTERVAL = 20
-    MAX_TIME_SPAN = int(5 * 24 * 3600)
-    WINDOW_SIZE = int(6 * 3600)
-    df = generate_simulation_data(n_points=N_POINTS, min_interval=MIN_INTERVAL)
-    df['value'] = (df['value'] - df['value'].mean()) / df['value'].std()
+    IS_VISUALIZING = False
+    N_POINTS = 300000
+    MIN_INTERVAL = 30
+    MAX_TIME_SPAN = int(6 * 60 * 60)
+    WINDOW_SIZE = 1200
+    df = generate_simulation_data(
+        n_points=N_POINTS, min_interval=MIN_INTERVAL
+    )
+
+    # Analysis
+    # *******************
+    if IS_VISUALIZING:
+        plt.close('all')
+        fig, ax = plt.subplots(figsize=(12, 4))
+
+        ax.grid(True)
+        ax.set_xlim(0, len(df))
+        ax.set_xlabel('Timestamp', fontsize=10)
+        ax.set_ylabel('Value', fontsize=10)
+        ax.set_title('Real-time KPI', fontsize=10)
+        ax.tick_params(axis="both", labelsize=10)
+
+        ax.plot(df['value'].values, linestyle='--', markersize=2.5,
+                color='k', marker='.', label="KPI curve")
+
+        ax.legend(fontsize=10)
+        plt.tight_layout()
 
     # 流式抽取统计特征
     # *******************
@@ -305,34 +434,51 @@ if __name__ == '__main__':
         interval=MIN_INTERVAL, max_time_span=MAX_TIME_SPAN
     )
 
-    window_mean_results = []
-    window_std_results = []
-    window_shift_results = []
-    window_count_results = []
-    window_hog_1d_results = []
+    window_feats = []
     for timestep, sensor_val in tqdm(df[['timestamp', 'value']].values):
         # 元素入队
+        # --------------
         stream_deque.push(timestep, sensor_val)
 
         # 统计量计算
-        window_mean_results.append(
-            stream_deque.get_window_mean(WINDOW_SIZE)
-        )
-
-        window_std_results.append(
-            stream_deque.get_window_std(WINDOW_SIZE)
-        )
-
-        # window_count_results.append(
-        #     stream_deque.get_window_range_count(
-        #         WINDOW_SIZE, 0.2, 0.5
-        #     )
+        # --------------
+        # window_feats.append(
+        #     stream_deque.get_window_mean(WINDOW_SIZE)
         # )
 
-        # window_hog_1d_results.append(
-        #     stream_deque.get_window_hog_1d(
-        #         WINDOW_SIZE, -60, 60, 16
-        #     )
+        # window_feats.append(
+        #     stream_deque.get_window_std(WINDOW_SIZE)
         # )
+
+        # window_feats.append(
+        #     stream_deque.get_window_std(WINDOW_SIZE)
+        # )
+
+        # timestamp, seneor_vals = stream_deque.get_window_timestamp_values(WINDOW_SIZE)
+
+        window_feats.append(
+            stream_deque.get_prediction_exponential_weighted_mean(0.7)
+        )
+
         # 空间拓展
+        # --------------
         stream_deque.update()
+
+
+plt.close('all')
+fig, ax = plt.subplots(figsize=(12, 4))
+
+ax.grid(True)
+# ax.set_xlim(0, len(df))
+ax.set_xlabel('Timestamp', fontsize=10)
+ax.set_ylabel('Value', fontsize=10)
+ax.set_title('Real-time KPI', fontsize=10)
+ax.tick_params(axis="both", labelsize=10)
+
+ax.plot(df['value'].values[:200], linestyle='--', markersize=2.5,
+        color='k', marker='.', label="KPI curve")
+ax.plot(window_feats[:200], linestyle='--', markersize=2.5,
+        color='r', marker='.', label="EWM")
+
+ax.legend(fontsize=10)
+plt.tight_layout()

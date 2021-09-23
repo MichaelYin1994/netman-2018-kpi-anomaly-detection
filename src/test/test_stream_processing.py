@@ -21,6 +21,8 @@ from numba import njit
 from statsmodels.tsa.seasonal import seasonal_decompose
 import matplotlib.pyplot as plt
 
+from utils import StreamDeque
+
 # 设定全局随机种子，并且屏蔽warnings
 GLOBAL_RANDOM_SEED = 2021
 np.random.seed(GLOBAL_RANDOM_SEED)
@@ -95,6 +97,25 @@ if __name__ == '__main__':
                 color='r', marker='.', label="trend_vals")
         ax.legend(fontsize=10)
         plt.tight_layout()
+
+    # 流式抽取统计特征
+    # *******************
+    stream_deque = StreamDeque(
+        interval=MIN_INTERVAL, max_time_span=MAX_TIME_SPAN
+    )
+
+    window_feats = []
+    for timestep, sensor_val in tqdm(df[['timestamp', 'value']].values):
+        # 元素入队
+        stream_deque.push(timestep, sensor_val)
+
+        # 统计量计算
+        window_feats.append(
+            stream_deque.get_window_values(WINDOW_SIZE)
+        )
+
+        # 空间拓展
+        stream_deque.update()
 
 """
 if __name__ == '__main__':
