@@ -56,7 +56,7 @@ if __name__ == '__main__':
     # https://treelite.readthedocs.io/en/latest/
     # ----------------
     file_processor = LoadSave(dir_name='../models/')
-    trained_models_list, decision_threshold_list = file_processor.load_data(
+    trained_models_list, decision_threshold = file_processor.load_data(
         file_name=MODEL_FILE_NAME
     )
 
@@ -102,13 +102,11 @@ if __name__ == '__main__':
 
         # 模型inference
         test_pred_proba_list_tmp = []
-        for fold, (model, threshold) in enumerate(
-                zip(trained_models_list[-2:], decision_threshold_list[-2:])
-            ):
+        for fold, model in enumerate(trained_models_list):
             test_pred_proba_list_tmp.append(model.predict_proba(
                 real_time_feats, num_iteration=model.best_iteration_, n_jobs=1
             )[:, 1])
-            test_pred_label = test_pred_proba_list_tmp[-1] > threshold
+            test_pred_label = test_pred_proba_list_tmp[-1] > decision_threshold
         predicted_label_list.append(test_pred_label)
 
         # 可视化

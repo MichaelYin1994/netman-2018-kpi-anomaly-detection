@@ -26,7 +26,6 @@ GLOBAL_RANDOM_SEED = 2021
 
 def generator_tscv(df_list, n_folds=2, is_shuffle_train=True):
     '''Generator of the data'''
-
     n_splits = n_folds + 1
     df_size_list = [len(item) for item in df_list]
 
@@ -67,7 +66,7 @@ def generator_tscv(df_list, n_folds=2, is_shuffle_train=True):
 def feval_precision_recall_auc(y_true, y_pred):
     '''用于lightgbm早停Metric的P-R Curve AUC计算方法'''
     auc_score = pr_auc_score(
-        y_true.reshape(-1, 1), y_pred.reshape(-1, 1)
+        y_true[:, 1].reshape(-1, 1), y_pred[:, 1].reshape(-1, 1)
     )
 
     return 'pr-auc', round(auc_score, 7), True

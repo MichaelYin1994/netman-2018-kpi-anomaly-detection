@@ -118,7 +118,9 @@ def update_window_std_params(sensor_vals, old_start, old_end,
     return dist2end, window_sum, window_squre_sum, std_res
 
 
-def update_window_range_count_params(sensor_vals, old_start, old_end,
+@njit
+def update_window_range_count_params(sensor_vals,
+                                     old_start, old_end,
                                      new_start, new_end,
                                      low, high, low_count, high_count):
 
@@ -146,6 +148,55 @@ def update_window_range_count_params(sensor_vals, old_start, old_end,
 
 
 class StreamDeque():
+    '''对于时序流数据（stream data）的高效存储与基础特征抽取方法的实现。
+
+    采用numpy array模拟deque，deque保存指定时间区间范围内的时序值。每当时间
+    范围不满足条件的时候，通过指针移动模拟队尾元素出队；当array满的时候，
+    动态重新分配deque的内存空间。
+
+    我们实现的ArrayDeque在设计时便考虑了数据流时间戳不均匀的问题，通过移动指针
+    的方式高效的实现元素的入队和出队，保证deque内只有指定时间范围内的时序数据。
+
+    ArrayDeque的实现中，同时设计了多种针对流数据的特征抽取算法。包括：
+    - 给定时间窗口内均值(mean)抽取算法。
+    - 给定时间窗口内标准差(std)抽取算法。
+    - 给定时间窗口内的range count分布抽取。
+    - 给定时间窗口内的HOG-1D特征[2]抽取。
+    - 时间shift特征。
+    - EWMA，Holt预测方法。
+
+    时序stream特征抽取时，若是时间戳连续，则算法可以做到O(1)时间与空间复杂度，
+    但是由于实际场景中日志采集的时间戳不一定是连续的，因此抽取指定窗口内的统计量
+    需要先进行窗口放缩的操作，因此时间复杂度不再是O(1)，但是我们的实现仍然保证了
+    线性时间复杂度的统计量抽取。
+
+    @Attributes:
+    ----------
+    interval: {int-like}
+        元素与元素之间最小的时间间隔单位，默认为秒。
+    max_time_span: {int-like}
+        deque首元素与尾元素最大允许时间差，默认单位为秒。
+    deque_timestamp: {array-like}
+        用于存储unix时间戳的数组，模拟双端队列。
+    deque_vals: {array-like}
+        用于存储实际传感器读数的数组，模拟双端队列。
+    deque_size: {int-like}
+        deque的大小。
+    deque_front: {int-like}
+        用于模拟deque范围的deque的头指针。
+    deque_rear: {int-like}
+        用于模拟deque范围的deque的尾指针，永远指向deque最后一个有值元素索引的
+        下一个元素索引。
+    deque_stats: {dict-like}
+        用于保持stream计算统计量时的一些基础统计信息。
+
+    @References:
+    ----------
+    [1] https://www.kaggle.com/lucasmorin/running-algos-fe-for-fast-inference
+    [2] Zhao, Jiaping, and Laurent Itti. "Classifying time series using local descriptors with hybrid sampling." IEEE Transactions on Knowledge and Data Engineering 28.3 (2015): 623-637.
+    [3] Rakthanmanon, Thanawin, et al. "Searching and mining trillions of time series subsequences under dynamic time warping." Proceedings of the 18th ACM SIGKDD international conference on Knowledge discovery and data mining. 2012.
+    [4] Zhao, Nengwen, et al. "Label-less: A semi-automatic labelling tool for kpi anomalies." IEEE INFOCOM 2019-IEEE Conference on Computer Communications. IEEE, 2019.
+    '''
     def __init__(self, interval=20, max_time_span=3600):
         self.interval = interval
         self.max_time_span = max_time_span
@@ -290,10 +341,11 @@ class StreamDeque():
 
         # 重新计算参数
         dist2end, low_count, high_count = update_window_range_count_params(
-            self.deque_timestamp,
             self.deque_vals,
-            start, end, low, high,
-            low_count, high_count, window_size
+            start, end,
+            new_start, new_end,
+            low, high,
+            low_count, high_count
         )
 
         # 更新预置参数
@@ -343,6 +395,7 @@ class StreamDeque():
         return window_timestamp, window_sensor_vals
 
     def get_prediction_exponential_weighted_mean(self, alpha=0.25, alpha_type=0):
+        '''以O(1)时间复杂度计算Exponential Weighted Average Prediction结果'''
         # aplha_type:
         # 0: ordinary alpha
         # 1: span
@@ -368,9 +421,9 @@ class StreamDeque():
         field_name = hash(alpha) + hash(alpha_type)
 
         if field_name in self.deque_stats:
-            y_hat_t_1 = self.deque_stats[field_name]
+            l_t_1 = self.deque_stats[field_name]
         else:
-            y_hat_t_1 = 0
+            l_t_1 = 0
 
         if len(self) == 1:
             y_t_1 = 1 / alpha * self.deque_vals[self.deque_front]
@@ -378,7 +431,8 @@ class StreamDeque():
             y_t_1 = self.get_n_shift(1)
 
         # prediction
-        y_hat_t = alpha * y_t_1 + (1 - alpha) * y_hat_t_1
+        l_t = alpha * y_t_1 + (1 - alpha) * l_t_1
+        y_hat_t = l_t
 
         # 更新预置参数
         self.deque_stats[field_name] = y_hat_t
@@ -386,15 +440,29 @@ class StreamDeque():
         return y_hat_t
 
     def get_prediction_holt(self, alpha, beta):
-        pass
-
-        # 计算alpha值
-
+        '''以O(1)时间复杂度计算Holt Prediction结果'''
         # 载入stream参数（加法hash计算索引）
-        # x_{t-1}, l_{t-1|t-2}
+        field_name = hash(alpha + beta) + 256
 
-    def get_prediction_holt_windters(self, alpha, beta, gamma):
-        pass
+        if field_name in self.deque_stats:
+            l_t_1, b_t_1 = self.deque_stats[field_name]
+        else:
+            l_t_1, b_t_1 = 0, 0
+
+        if len(self) == 1:
+            y_t_1 = 1 / alpha * self.deque_vals[self.deque_front]
+        else:
+            y_t_1 = self.get_n_shift(1)
+
+        # prediction
+        l_t = alpha * y_t_1 + (1 - alpha) * (l_t_1 + b_t_1)
+        b_t = beta * (l_t - l_t_1) + (1 - beta) * b_t_1
+        y_hat_t = l_t + b_t
+
+        # 更新预置参数
+        self.deque_stats[field_name] = [l_t, b_t]
+
+        return y_hat_t
 
 
 if __name__ == '__main__':
@@ -450,35 +518,43 @@ if __name__ == '__main__':
         #     stream_deque.get_window_std(WINDOW_SIZE)
         # )
 
-        # window_feats.append(
-        #     stream_deque.get_window_std(WINDOW_SIZE)
-        # )
+        window_feats.append(
+            stream_deque.get_window_range_count_ratio(WINDOW_SIZE, -0.1, 0.1)
+        )
 
         # timestamp, seneor_vals = stream_deque.get_window_timestamp_values(WINDOW_SIZE)
 
-        window_feats.append(
-            stream_deque.get_prediction_exponential_weighted_mean(0.7)
-        )
+        # window_feats.append(
+        #     stream_deque.get_prediction_exponential_weighted_mean(0.7)
+        # )
+
+        # window_feats.append(
+        #     stream_deque.get_prediction_exponential_weighted_mean(0.7)
+        # )
+
+
+        # window_feats.append(
+        #     stream_deque.get_prediction_holt(0.75, 0.8)
+        # )
 
         # 空间拓展
         # --------------
         stream_deque.update()
 
 
-plt.close('all')
-fig, ax = plt.subplots(figsize=(12, 4))
+    # plt.close('all')
+    # fig, ax = plt.subplots(figsize=(12, 4))
 
-ax.grid(True)
-# ax.set_xlim(0, len(df))
-ax.set_xlabel('Timestamp', fontsize=10)
-ax.set_ylabel('Value', fontsize=10)
-ax.set_title('Real-time KPI', fontsize=10)
-ax.tick_params(axis="both", labelsize=10)
+    # ax.grid(True)
+    # ax.set_xlabel('Timestamp', fontsize=10)
+    # ax.set_ylabel('Value', fontsize=10)
+    # ax.set_title('Real-time KPI', fontsize=10)
+    # ax.tick_params(axis="both", labelsize=10)
 
-ax.plot(df['value'].values[:200], linestyle='--', markersize=2.5,
-        color='k', marker='.', label="KPI curve")
-ax.plot(window_feats[:200], linestyle='--', markersize=2.5,
-        color='r', marker='.', label="EWM")
+    # ax.plot(df['value'].values[:500], linestyle='--', markersize=2.5,
+    #         color='k', marker='.', label="KPI curve")
+    # ax.plot(window_feats[:500], linestyle='--', markersize=2.5,
+    #         color='r', marker='.', label="KPI curve")
 
-ax.legend(fontsize=10)
-plt.tight_layout()
+    # ax.legend(fontsize=10)
+    # plt.tight_layout()

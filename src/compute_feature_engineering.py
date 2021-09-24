@@ -41,7 +41,7 @@ def compute_kpi_feats_single_step(data_pack, stream_deque):
     # 解压数据值
     # *************
     kpi_id, timestep, sensor_val = data_pack
-    tmp_feats.extend([timestep, int(kpi_id)])
+    tmp_feats.extend([timestep, int(kpi_id), sensor_val])
 
     # 数据入队
     # *************
@@ -50,31 +50,61 @@ def compute_kpi_feats_single_step(data_pack, stream_deque):
     # Stream统计特征抽取
     # *************
     # 计算滑窗均值
-    for window_minutes in [5, 10, 16, 32]:
+    for window_minutes in [5, 10, 15, 30, 60]:
         tmp_feats.append(
             stream_deque.get_window_mean(int(window_minutes * 60))
         )
 
     # 计算滑窗标准差
-    for window_minutes in [5, 10, 16, 32]:
+    for window_minutes in [5, 10, 15, 30, 60]:
         tmp_feats.append(
             stream_deque.get_window_std(int(window_minutes * 60))
         )
 
     # value shift
-    for n_shift in [i for i in range(64)]:
+    for n_shift in [i for i in range(1, 16)]:
         tmp_feats.append(
-            (stream_deque.get_window_shift(n_shift) - sensor_val) / (1 + sensor_val)
+            (stream_deque.get_n_shift(n_shift) - sensor_val) / (1 + sensor_val)
         )
 
-    # Moving Average
-
-
     # EWMA
+    for alpha in [0.2, 0.3, 0.4, 0.5, 0.7, 0.9]:
+        tmp_feats.append(
+            (stream_deque.get_prediction_exponential_weighted_mean(alpha) - sensor_val) / (1 + sensor_val)
+        )
 
-    # Segment
+    # Holt prediction
+    for alpha in [0.2, 0.3, 0.5, 0.8, 0.9]:
+        for beta in [0.2, 0.3, 0.5, 0.8, 0.9]:
+            tmp_feats.append(
+                (stream_deque.get_prediction_holt(alpha, beta) - sensor_val) / (1 + sensor_val)
+            )
+
+    # Segment Features
     # *************
-    
+    for window_size in [5, 10, 60, 120]:
+
+        window_size_seconds = int(window_minutes * 60)
+
+        _, sensor_vals = stream_deque.get_window_timestamp_values(
+            window_size_seconds
+        )
+        sensor_diff_vals = np.diff(sensor_vals)
+
+        tmp_feats.extend(
+            [
+                (np.min(sensor_vals) - sensor_val) / (1 + sensor_val),
+                (np.max(sensor_vals) - sensor_val) / (1 + sensor_val),
+                (np.median(sensor_vals) - sensor_val) / (1 + sensor_val),
+                np.mean(sensor_diff_vals),
+                np.std(sensor_diff_vals)
+            ]
+        )
+
+        for q in [0.05, 0.25, 0.75, 0.95]:
+            tmp_feats.append(
+                (np.quantile(sensor_vals, q) - sensor_val) / (1 + sensor_val)
+            )
 
     # 更新deque参数
     # *************
@@ -103,7 +133,7 @@ def compute_kpi_feats_df(df, stream_deque=None):
         )
 
     total_stat_feats = []
-    for data_pack in df.values:
+    for data_pack in (df.values):
         total_stat_feats.append(
             compute_kpi_feats_single_step(data_pack, stream_deque)
         )
@@ -147,10 +177,10 @@ if __name__ == '__main__':
 
     # 测试特征工程
     # ----------------
-    kpi_id = 0
-    feat_df_tmp, stream_deque_tmp = compute_kpi_feats_df(
-        train_df_list[kpi_id]
-    )
+    # kpi_id = 0
+    # feat_df_tmp, stream_deque_tmp = compute_kpi_feats_df(
+    #     train_df_list[kpi_id]
+    # )
 
     # 多进程并行特征工程
     # ----------------
