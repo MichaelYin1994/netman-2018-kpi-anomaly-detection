@@ -131,7 +131,7 @@ def evaluate_test_lgb(model_name, file_name):
 
 if __name__ == '__main__':
     MODEL_FILE_NAME = '53_lgb_nfolds_5_valf1_514573_totalf1_531719.pkl'
-    TEST_FILE_NAME = 'test_df_part_x.pkl'  # test_df_part_x, test_df_part_y, test_df
+    TEST_FILE_NAME = 'test_df.pkl'  # test_df_part_x, test_df_part_y, test_df
 
     # 载入test_df数据
     # ----------------

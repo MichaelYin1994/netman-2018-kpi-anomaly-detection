@@ -1,82 +1,26 @@
-## 2018年AIOps国际挑战赛数据集基线方法
+## 2018年AIOps国际挑战赛KPI异常检测工程化部署方法实践
 
 ---
 ### **作者简介**
 
-作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范。**注意**！本项目对内存要求较大（32G+），Linux环境下需要更大的swap空间支持！（20210831）
+作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范，逐步完善中。
 
 ---
-### **系统环境依赖**
+### **系统环境与组件依赖**
 
-- 系统环境: Ubuntu 20.04 LTS
+系统环境:
+- Ubuntu 20.04 LTS
 - GPU: NVIDIA Corporation GP104GL [Quadro P5000](16G)
 - CPU: Intel® Core™ i9-9920X CPU @ 3.50GHz × 24
 - RAM: 94G
-- CUDA: 10.1
+- CUDA: 11.4
 - swap: 64G
-- python == 3.6.9
-- pandas == 1.0.4
-- numba == 0.49.0
-- numpy == 1.18.1
-- xgboost == 1.2.1
-- scikit-learn == 0.22.2
-- scipy == 1.4.1
-- tensorflow-gpu == 2.5.0
 
----
-### **代码与存储结构**
-
-```
-.
-├── cached_data
-│   ├── test_df_part_x.pkl
-│   ├── test_df_part_y.pkl
-│   ├── test_df.pkl
-│   ├── train_df.pkl
-│   └── train_feats_list.pkl
-├── data
-│   ├── kpi competition
-│   │   ├── phase2_ground_truth.hdf
-│   │   └── phase2_train.csv
-│   └── zips
-│       ├── KPI异常检测决赛数据集.zip
-│       └── train.zip
-├── logs
-│   └── logs.csv
-├── models
-│   └── models.pkl
-├── README.MD
-└── src
-    ├── test
-    │   ├── test_stream_data.py
-    │   └── test_utils.py
-    ├── compute_feature_engineering.py
-    ├── create_train_test.py
-    ├── evaluation.py
-    ├── exploring_data.py
-    ├── offline_inference.py
-    ├── online_inference.py
-    ├── train_lightgbm.py
-    ├── train_nn.py
-    ├── train_xgboost.py
-    └── utils.py
-```
-
-文档结构：
-- **./cached_data/**: 用于存储原始数据简单预处理后的临时数据，以及训练数据特征工程的结果。
-- **./data/**: 用于存储原始比赛数据（Raw data）。
-- **./logs/**: 训练/Online serving阶段的日志记录。
-- **./models/**: 训练好的模型文件位置。
-- **./src/**: 项目源码。
-- **./src/test/**: 项目单元测试与Online serving流测试。
-
-主要代码文件说明：
-- **./src/create_train_test.py**: 简单预处理原始数据，并且拆分测试集，并构造流测试数据集。
-- **./src/compute_feature_engineering.py**: 高性能流特征工程。
-- **./src/train_lightgbm.py**: CPU环境训练LightGBM模型。
-- **./src/train_xgboost.py**: GPU环境训练XGBoost模型。
-- **./src/train_nn.py**: GPU环境训练Tabular Neural Network模型。
-- **./src/offline_inference.py**: 使用训练好的模型，对测试数据或者部分测试数据执行离线推理。
+使用开源组件:
+- OpenMLDB: 用于stream形式数据的实时特征工程。
+- cAdivisor: 用于容器状态监控。
+- Triton inference server: 用于serving XGBoost模型与DL-based模型。
+- Prometheus + Grafana: 用于容器状态的可视化监控。
 
 ---
 ### **References**

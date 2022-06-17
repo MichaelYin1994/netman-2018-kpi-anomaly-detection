@@ -35,10 +35,10 @@ sns.set(style="ticks", font_scale=1.2, palette='deep', color_codes=True)
 ###############################################################################
 
 if __name__ == '__main__':
-    IS_VISUALIZING = False
+    IS_VISUALIZING = True
     KPI_ID_TO_INFERENCE = 12  # kpi_id \in [0. 28]
     TEST_FILE_NAME = 'test_df_part_x.pkl'  # test_df_part_x, test_df_part_y, test_df
-    MODEL_FILE_NAME = '15_lgb_nfolds_5_valprauc_424295_valrocauc_912195.pkl'
+    MODEL_FILE_NAME = '66_lgb_nfolds_5_valf1_532224_totalf1_549548.pkl'
 
     # 载入test_df数据
     # ----------------
