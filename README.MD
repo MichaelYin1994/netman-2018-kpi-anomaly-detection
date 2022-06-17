@@ -3,7 +3,7 @@
 ---
 ### **作者简介**
 
-作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范，逐步完善中。
+作者：鱼丸粗面（zhuoyin94@163.com）。整体采用了[此项目](https://github.com/MichaelYin1994/python-style-guide)的编码规范，逐步完善中（20220617）。
 
 ---
 ### **系统环境与组件依赖**
