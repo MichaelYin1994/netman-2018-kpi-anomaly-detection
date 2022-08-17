@@ -8,19 +8,24 @@
 ---
 ### **系统环境与组件依赖**
 
-系统环境:
+**系统环境:**
 - Ubuntu 20.04 LTS
 - GPU: NVIDIA Corporation GP104GL [Quadro P5000](16G)
 - CPU: Intel® Core™ i9-9920X CPU @ 3.50GHz × 24
 - RAM: 94G
 - CUDA: 11.4
-- swap: 64G
+- swap: 96G
 
-使用开源组件:
+**开源组件:**
 - OpenMLDB: 用于stream形式数据的实时特征工程。
 - cAdivisor: 用于容器状态监控。
 - Triton inference server: 用于serving XGBoost模型与DL-based模型。
 - Prometheus + Grafana: 用于容器状态的可视化监控。
+
+---
+### **源代码说明**
+
+- **preparing.py**：数据切分，入库。
 
 ---
 ### **References**
@@ -46,4 +51,3 @@
 [10] Liu, Dapeng, et al. "Opprentice: Towards practical and automatic anomaly detection through machine learning." Proceedings of the 2015 Internet Measurement Conference. 2015.
 
 [11] Zhao, Nengwen, et al. "Label-less: A semi-automatic labelling tool for kpi anomalies." IEEE INFOCOM 2019-IEEE Conference on Computer Communications. IEEE, 2019.
-

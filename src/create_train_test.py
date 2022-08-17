@@ -7,7 +7,7 @@
 # Github:     https://github.com/MichaelYin1994
 
 '''
-本模块(create_train_test.py)针对原始*.csv的KPI数据进行预处理，切分训练与测试数据。
+本模块(create_train_test.py)针对原始*.csv的KPI数据进行预处理，切分训练与测试数据。（注意：test标签应该是靠谱的）
 '''
 
 import os
@@ -19,23 +19,12 @@ from sklearn.preprocessing import LabelEncoder
 import seaborn as sns
 import matplotlib.pyplot as plt
 
-from utils import LoadSave
+from utils.io_utils import LoadSave, load_from_csv
 
 sns.set(style='ticks', font_scale=1.2, palette='deep', color_codes=True)
 colors = ['C' + str(i) for i in range(0, 9+1)]
 
 ###############################################################################
-def load_csv(dir_name, file_name, nrows=100, **kwargs):
-    '''从指定路径dir_name读取名为file_name的*.csv文件，nrows指定读取前nrows行。'''
-    if dir_name is None or file_name is None or not file_name.endswith('.csv'):
-        raise ValueError('Invalid dir_name or file_name !')
-
-    full_name = os.path.join(dir_name + file_name)
-    full_name = dir_name + file_name
-    data = pd.read_csv(full_name, nrows=nrows, **kwargs)
-
-    return data
-
 
 def plot_single_kpi(time_stamp, kpi_vals, label):
     '''可视化单条KPI曲线'''
@@ -62,23 +51,24 @@ def plot_single_kpi(time_stamp, kpi_vals, label):
     plt.tight_layout()
 
 
-if __name__ == '__main__':
-    # 全局化参数
-    # ----------------
-    NROWS = None
-    IS_PLOT_KPI = True
-    TEST_DEV_RATIO = 0.3
-    TRAIN_PATH = '../data/kpi competition/'
+class CONFIGS:
+    nrows = None
+    is_plot_kpi_curve = True
 
+    test_dev_ratio = 0.3
+    train_data_path = '../data/kpi competition/'
+
+
+if __name__ == '__main__':
     # 数据预处理：
     # 1. 按时间切分时序数据为训练与测试部分
     # 2. 拆分测试数据，构建流测试输入
     # ----------------
-    train_df = load_csv(
-        dir_name=TRAIN_PATH, file_name='phase2_train.csv', nrows=NROWS
+    train_df = load_from_csv(
+        dir_name=CONFIGS.train_data_path, file_name='phase2_train.csv', nrows=CONFIGS.nrows
     )
     test_df = pd.read_hdf(
-        os.path.join(TRAIN_PATH, 'phase2_ground_truth.hdf')
+        os.path.join(CONFIGS.train_data_path, 'phase2_ground_truth.hdf')
     )
     test_df['KPI ID'] = test_df['KPI ID'].apply(str)
 
@@ -95,7 +85,7 @@ if __name__ == '__main__':
     test_df['kpi_id'] = encoder.transform(test_df['kpi_id'].values)
 
     # 绘制1条KPI曲线及其异常点（kpi_id \in [0, 28]）
-    if IS_PLOT_KPI:
+    if CONFIGS.is_plot_kpi_curve:
         kpi_id = 12
         plt.close('all')
 
@@ -106,10 +96,10 @@ if __name__ == '__main__':
             train_tmp_df['label'].values
         )
 
-    # 拆分测试数据：按时间戳范围与预设比例，拆分testing数据
+    # 拆分测试数据：按时间戳范围与预设比例，拆分test数据
     # *************
 
-    # 测试数据拆分为2部分: test_part_x, test_part_y用作评测
+    # 测试数据按时间顺序与kpi-id拆分为2部分: test_part_x, test_part_y用作评测
     test_df_list = []
     for kpi_id in test_df['kpi_id'].unique():
         test_df_tmp = test_df.query('kpi_id == {}'.format(kpi_id))
@@ -118,7 +108,7 @@ if __name__ == '__main__':
         test_df_list.append(test_df_tmp)
 
     test_idx_list = [
-        int(np.floor(TEST_DEV_RATIO * len(item))) for item in test_df_list
+        int(np.floor(CONFIGS.test_dev_ratio * len(item))) for item in test_df_list
     ]
 
     test_df_list_part_x, test_df_list_part_y = [], []
@@ -139,17 +129,17 @@ if __name__ == '__main__':
 
     # 以*.pkl保存预处理好的数据
     # ----------------
-    file_processor = LoadSave(dir_name='../cached_data/')
-    file_processor.save_data(
+    file_handler = LoadSave(dir_name='../cached_data/')
+    file_handler.save_data(
         file_name='train_df.pkl', data_file=train_df
     )
-    file_processor.save_data(
+    file_handler.save_data(
         file_name='test_df.pkl', data_file=test_df
     )
 
-    file_processor.save_data(
+    file_handler.save_data(
         file_name='test_df_part_x.pkl', data_file=test_df_part_x
     )
-    file_processor.save_data(
+    file_handler.save_data(
         file_name='test_df_part_y.pkl', data_file=test_df_part_y
     )
