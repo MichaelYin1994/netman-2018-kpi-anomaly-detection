@@ -15,7 +15,6 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import tensorflow as tf
 import yaml
 from easydict import EasyDict as edict
 from tqdm import tqdm

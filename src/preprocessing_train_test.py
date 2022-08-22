@@ -56,11 +56,14 @@ class CONFIGS:
     is_plot_kpi_curve = True
 
     test_dev_ratio = 0.3
-    train_data_path = '../data/kpi competition/'
+    train_data_path = '../data/kpi_competition/'
 
 
 if __name__ == '__main__':
-    # 数据预处理：
+
+    # 数据预处理
+    # *************
+
     # 1. 按时间切分时序数据为训练与测试部分
     # 2. 拆分测试数据，构建流测试输入
     # ----------------
@@ -72,8 +75,11 @@ if __name__ == '__main__':
     )
     test_df['KPI ID'] = test_df['KPI ID'].apply(str)
 
-    train_df.rename({'KPI ID': 'kpi_id'}, axis=1, inplace=True)
-    test_df.rename({'KPI ID': 'kpi_id'}, axis=1, inplace=True)
+    rename_dict = {
+        'KPI ID': 'kpi_id', 'timestamp': 'unix_ts'
+    }
+    train_df.rename(rename_dict, axis=1, inplace=True)
+    test_df.rename(rename_dict, axis=1, inplace=True)
     train_unique_kpis = train_df['kpi_id'].unique().tolist()
     test_unique_kpis = test_df['kpi_id'].unique().tolist()
 
@@ -91,7 +97,7 @@ if __name__ == '__main__':
 
         train_tmp_df = train_df[train_df['kpi_id'] == kpi_id]
         plot_single_kpi(
-            train_tmp_df['timestamp'].values,
+            train_tmp_df['unix_ts'].values,
             train_tmp_df['value'].values,
             train_tmp_df['label'].values
         )
@@ -99,7 +105,9 @@ if __name__ == '__main__':
     # 拆分测试数据：按时间戳范围与预设比例，拆分test数据
     # *************
 
-    # 测试数据按时间顺序与kpi-id拆分为2部分: test_part_x, test_part_y用作评测
+    # test数据按时间顺序与kpi-id拆分为2部分:
+    # - test_part_x用做离线测评；
+    # - test_part_y用作在线评测
     test_df_list = []
     for kpi_id in test_df['kpi_id'].unique():
         test_df_tmp = test_df.query('kpi_id == {}'.format(kpi_id))
@@ -126,6 +134,13 @@ if __name__ == '__main__':
     test_df_part_y = pd.concat(
         test_df_list_part_y, axis=0, ignore_index=True
     )
+
+    # 以*.csv保存预处理好的数据
+    # ----------------
+    train_df.to_csv('../cached_data/train_df.csv', index=False)
+    test_df.to_csv('../cached_data/test_df.csv', index=False)
+    test_df_part_x.to_csv('../cached_data/test_df_part_x.csv', index=False)
+    test_df_part_y.to_csv('../cached_data/test_df_part_y.csv', index=False)
 
     # 以*.pkl保存预处理好的数据
     # ----------------

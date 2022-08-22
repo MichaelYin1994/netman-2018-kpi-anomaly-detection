@@ -1,0 +1,23 @@
+SELECT kpi_id, unix_ts, label, value,
+SUM(value) OVER w_300 AS window_val_sum_w300,
+MIN(value) OVER w_300 AS window_val_min_w300,
+MAX(value) OVER w_300 AS window_val_max_w300,
+AVG(value) OVER w_300 AS window_val_mean_w300,
+SUM(value) OVER w_600 AS window_val_sum_w600,
+MIN(value) OVER w_600 AS window_val_min_w600,
+MAX(value) OVER w_600 AS window_val_max_w600,
+AVG(value) OVER w_600 AS window_val_mean_w600,
+SUM(value) OVER w_1200 AS window_val_sum_w1200,
+MIN(value) OVER w_1200 AS window_val_min_w1200,
+MAX(value) OVER w_1200 AS window_val_max_w1200,
+AVG(value) OVER w_1200 AS window_val_mean_w1200,
+SUM(value) OVER w_3600 AS window_val_sum_w3600,
+MIN(value) OVER w_3600 AS window_val_min_w3600,
+MAX(value) OVER w_3600 AS window_val_max_w3600,
+AVG(value) OVER w_3600 AS window_val_mean_w3600,
+FROM kpi_history_series
+WINDOW w_300 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 300s PRECEDING AND CURRENT ROW),
+w_600 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 600s PRECEDING AND CURRENT ROW),
+w_1200 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 1200s PRECEDING AND CURRENT ROW),
+w_3600 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 3600s PRECEDING AND CURRENT ROW)
+INTO OUTFILE '../cached_data/train_feats_df.csv';
