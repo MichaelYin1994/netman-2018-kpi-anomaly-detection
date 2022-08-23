@@ -1,5 +1,2 @@
 SELECT kpi_id, unix_ts, label, value FROM kpi_history_series
-INTO OUTFILE '../cached_data/train_feats_df.csv';
-
-SELECT id, unix_ts, label, value FROM ts_db
-INTO OUTFILE '../cached_data/tmp.csv';
+INTO OUTFILE '/work/kpi-anomaly-detection/cached_data/train_feats' OPTIONS(mode='overwrite');

@@ -39,7 +39,7 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 class CONFIGS:
     n_folds = 5
     task_name = 'train_xgb'
-    cv_strategy = 'kf'
+    cv_strategy = 'gkf'
     early_stopping_rounds = 2000
 
     gpu_id = 0
@@ -49,7 +49,7 @@ class CONFIGS:
     is_save_model_to_disk = False
 
     xgb_params = {
-        'n_estimators': 15000,
+        'n_estimators': 15000, # 15000
         'max_depth': 4,
         'learning_rate': 0.05,
         'verbosity': 0,
@@ -90,7 +90,18 @@ if __name__ == '__main__':
 
     # 特征工程数据载入
     # *******************
-    train_feats_df = pd.read_csv('../cached_data/train_feats_df.csv')
+    # train_feats_df = pd.read_csv('../cached_data/train_feats_df.csv')
+
+    f_dir = '../cached_data/train_feats'
+    f_names_list = [f_name for f_name in os.listdir(f_dir) if f_name.endswith('.csv')]
+
+    train_feats_df_list = []
+    for f_name in f_names_list:
+        train_feats_df_list.append(pd.read_csv(os.path.join(f_dir, f_name)))
+
+    train_feats_df = pd.concat(train_feats_df_list, ignore_index=True)
+    train_feats_df['unix_ts'] = (pd.to_datetime(train_feats_df['unix_ts']).astype(int) / 10**9).astype(int)
+    train_feats_df['label'] = train_feats_df['label'].astype(int)
 
     # 模型训练与交叉验证
     # *******************

@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
-#!/usr/local/bin python
 # -*- coding: utf-8 -*-
 
 # Created on 202108311016
-# Author:     zhuoyin94 <zhuoyin94@163.com>
-# Github:     https://github.com/MichaelYin1994
+# Author:    zhuoyin94 <zhuoyin94@163.com>
+# Github:    https://github.com/MichaelYin1994
 
 '''
 本模块(create_train_test.py)针对原始*.csv的KPI数据进行预处理，切分训练与测试数据。（注意：test标签应该是靠谱的）
@@ -12,12 +10,11 @@
 
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-
 import seaborn as sns
-import matplotlib.pyplot as plt
+from sklearn.preprocessing import LabelEncoder
 
 from utils.io_utils import LoadSave, load_from_csv
 
@@ -60,7 +57,6 @@ class CONFIGS:
 
 
 if __name__ == '__main__':
-
     # 数据预处理
     # *************
 
@@ -80,10 +76,21 @@ if __name__ == '__main__':
     }
     train_df.rename(rename_dict, axis=1, inplace=True)
     test_df.rename(rename_dict, axis=1, inplace=True)
+
+    train_df['row_count'] = 1
+    train_df.sort_values(by='unix_ts', ascending=True, inplace=True)
+    train_df.reset_index(drop=True, inplace=True)
+    train_df['unix_ts'] = (train_df['unix_ts'] * 10**3).astype(int)
+
+    test_df['row_count'] = 1
+    test_df.sort_values(by='unix_ts', ascending=True, inplace=True)
+    test_df.reset_index(drop=True, inplace=True)
+    test_df['unix_ts'] = (test_df['unix_ts'] * 10**3).astype(int)
+
     train_unique_kpis = train_df['kpi_id'].unique().tolist()
     test_unique_kpis = test_df['kpi_id'].unique().tolist()
 
-    # 对train_df与test_df中的KPI ID进行编码
+    # 对train_df与test_df中的kpi_id进行编码
     # *************
     encoder = LabelEncoder()
     encoder.fit(train_df['kpi_id'].values)

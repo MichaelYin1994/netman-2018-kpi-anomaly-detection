@@ -6,3 +6,4 @@
 *.hdf
 
 /models/*
+/cached_data/

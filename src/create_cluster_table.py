@@ -15,26 +15,38 @@
 3  1476460980  0.017062      0  da10a69f-d836-3baa-ad40-3e548ecf1fbd
 '''
 
+import os
+
 import pandas as pd
-import openmldb.dbapi
 import sqlalchemy as db
 import tqdm
 
-from utils.io_utils import LoadSave
+from utils.logger import get_datetime, get_logger
+
 
 class CONFIGS:
+    # 任务名称
+    task_name = 'create_db'
+
     # 数据库名字
-    db_name = 'test_kpi_series'
+    db_name = 'kpi_data'
     table_name = 'kpi_history_series'
 
     # zookeeper IP
-    zk_ip = '172.48.0.28'
+    # zk_ip = '172.48.0.28'
+    zk_ip = '127.0.0.1'
 
     # zookeeper port
     zk_port = '2181'
 
     # zookeeper path（默认）
     zk_path = '/openmldb'
+
+    # offline data path
+    offline_data = '/work/kpi-anomaly-detection/cached_data/train_df.csv'
+
+    # online data path
+    online_data = '/work/kpi-anomaly-detection/cached_data/test_df_part_x.csv'
 
 
 def create_openmldb_connection(configs):
@@ -52,23 +64,20 @@ def create_openmldb_connection(configs):
 
 
 if __name__ == '__main__':
-    # 载入train kpi数据
+    # 配置日志logger
     # *******************
-    file_handler = LoadSave(dir_name='../cached_data/')
-    train_df = file_handler.load_data(file_name='train_df.pkl')
-
-    train_df['time_diff'] = train_df.groupby(['kpi_id'])['unix_ts'].diff()
-    train_df['time_diff'].fillna(
-        train_df['time_diff'].mode().values[0], inplace=True
+    LOGGING_PATH = '../logs/'
+    LOGGING_FILENAME = '{} {}.log'.format(
+        get_datetime(), CONFIGS.task_name
     )
-    train_df['time_diff'] = train_df['time_diff'].astype(int)
-    train_df['row_count'] = 1
 
-    train_df.sort_values(by='unix_ts', ascending=True, inplace=True)
-    train_df.reset_index(drop=True, inplace=True)
-
-    train_df = train_df.groupby(['kpi_id']).head(10).reset_index(drop=True)
-    train_df['unix_ts'] = (train_df['unix_ts'] * 10**3).astype(int)
+    logger = get_logger(
+        logger_name=CONFIGS.task_name,
+        is_print_std=True,
+        is_send_dingtalk=False,
+        is_save_to_disk=False,
+        log_path=os.path.join(LOGGING_PATH, LOGGING_FILENAME)
+    )
 
     # 构建zookeeper连接
     # *******************
@@ -80,20 +89,47 @@ if __name__ == '__main__':
 
     # 创建数据表
     connection.execute('USE {};'.format(CONFIGS.db_name))
-    connection.execute("SET @@execute_mode='offline';")
     connection.execute(
         (
             f'CREATE TABLE IF NOT EXISTS {CONFIGS.table_name}'
-            ' (unix_ts timestamp, value double, label int, kpi_id int, time_diff int, row_count int);'
+            ' (unix_ts timestamp, value double, label int, kpi_id int, row_count int);'
         )
     )
 
-    # STEP 3: 将数据写入OpenMLDB数据库中
-    # ----------
-    connection.execute("SET @@execute_mode='online';")
-    # connection.execute('INSERT INTO {} values(1476460800, 0.0126036806477, 0, 25);'.format(CONFIGS.table_name))
+    # offline模式下，离线数据载入LOAD DATA
+    # *******************
+    logger.info('Loading offline data...')
 
-    train_df.to_sql(
-        CONFIGS.table_name, con=connection, if_exists='append', index=False
+    connection.execute("SET @@execute_mode='offline';")
+    connection.execute('SET @@sync_job=true;')
+    connection.execute('SET @@job_timeout=1200000;')
+    connection.execute(
+        (
+            f"LOAD DATA INFILE '{CONFIGS.offline_data}' "
+            f"INTO TABLE {CONFIGS.table_name} OPTIONS(format='csv', header=true, deep_copy=true, mode='append');"
+        )
     )
+
+    # online模式下，离线数据载入LOAD DATA
+    # *******************
+    logger.info('Loading online data...')
+
+    connection.execute("SET @@execute_mode='online';")
+    connection.execute('SET @@sync_job=true;')
+    connection.execute('SET @@job_timeout=1200000;')
+    connection.execute(
+        (
+            f"LOAD DATA INFILE '{CONFIGS.offline_data}' "
+            f"INTO TABLE {CONFIGS.table_name} OPTIONS(format='csv', header=true, deep_copy=true, mode='append');"
+        )
+    )
+
     connection.close()
+
+    # # STEP 3: 将数据写入OpenMLDB数据库中
+    # # ----------
+    # connection.execute("SET @@execute_mode='online';")
+    # train_df.to_sql(
+    #     CONFIGS.table_name, con=connection, if_exists='append', index=False
+    # )
+    # connection.close()
