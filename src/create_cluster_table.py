@@ -126,10 +126,4 @@ if __name__ == '__main__':
 
     connection.close()
 
-    # # STEP 3: 将数据写入OpenMLDB数据库中
-    # # ----------
-    # connection.execute("SET @@execute_mode='online';")
-    # train_df.to_sql(
-    #     CONFIGS.table_name, con=connection, if_exists='append', index=False
-    # )
-    # connection.close()
+    logger.info('\n***************FINISHED...***************')

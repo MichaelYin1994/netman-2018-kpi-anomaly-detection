@@ -4,6 +4,7 @@
 *.npz
 *.pyc
 *.hdf
+*.log
 
 /models/*
 /cached_data/

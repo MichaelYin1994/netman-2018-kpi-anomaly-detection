@@ -4,6 +4,6 @@
 
 # 集群版CLI启动(tct-cvpr)：./openmldb/bin/openmldb --zk_cluster=127.0.0.1:2181 --zk_root_path=/openmldb --role=sql_client
 
-export PROJECT_PATH="/home/tct-cvpr/Desktop/yinzhuo_host_files/kpi-anomaly-detection/"
+export PROJECT_PATH="/home/zhuoyin94/Desktop/hard_disk/kpi-anomaly-detection/"
 export CONTAINER_WORK_PATH="/work/kpi-anomaly-detection/"
 docker run -it --rm -v $PROJECT_PATH:$CONTAINER_WORK_PATH -v /etc/localtime:/etc/localtime:ro --network=host --name servering_openmldb mlops/openmldb:0.6.0

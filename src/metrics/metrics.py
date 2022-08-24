@@ -116,6 +116,21 @@ def pr_auc_score(y_true, y_pred):
     return auc_score
 
 
+def feval_custom_metric(threshold):
+    '''对于官方Metric的近似（没有依据时间戳的label调节），用于XGBoost的早停'''
+    def compute_adjusted_f1(y_pred, dtrain):
+        y_true_label = dtrain.get_label()
+        y_pred_label = np.where(y_pred > threshold, 1, 0)
+
+        y_pred_label_adjusted = adjust_predict_label(
+            y_true_label, y_pred_label, delay=7
+        )
+        custom_score, _, _ = njit_f1(y_true_label, y_pred_label_adjusted)
+
+        return 'adjusted_f1', -1 * np.round(custom_score, 7)
+    return compute_adjusted_f1
+
+
 def evaluate_df_score(true_df, pred_df, delay=7):
     '''依据比赛[1]与论文[2]的评测方法重构的KPI预测结果的分数计算方法。
 
