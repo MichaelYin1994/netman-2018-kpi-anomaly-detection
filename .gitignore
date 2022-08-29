@@ -6,5 +6,6 @@
 *.hdf
 *.log
 
-/models/*
-/cached_data/
+/cached_models/*
+/cached_data/*
+

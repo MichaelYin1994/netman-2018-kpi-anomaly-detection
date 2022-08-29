@@ -6,34 +6,18 @@
 
 '''
 使用sql脚本，进行时序特征工程。
+
+在线部署联通测试脚本：
+curl http://127.0.0.1:9080/dbs/kpi_data/deployments/online_feats -X POST -d'{"input": [[1467303000000, 0.0282821271162999, 0, 20, 1]]}'
 '''
 
 import os
 
-import pandas as pd
 import sqlalchemy as db
-import tqdm
 
+from utils.configs import online_fe_configs as CONFIGS
+from utils.configs import openmldb_configs
 from utils.logger import get_datetime, get_logger
-
-
-class CONFIGS:
-    # 任务名称
-    task_name = 'create_feats'
-
-    # 数据库名字
-    db_name = 'kpi_data'
-    table_name = 'kpi_history_series'
-
-    # zookeeper IP
-    # zk_ip = '172.48.0.28'
-    zk_ip = '127.0.0.1'
-
-    # zookeeper port
-    zk_port = '2181'
-
-    # zookeeper path（默认）
-    zk_path = '/openmldb'
 
 
 def create_openmldb_connection(configs):
@@ -69,34 +53,45 @@ if __name__ == '__main__':
     # 目录数据预处理
     # *******************
 
-    # # 数据目录预处理
-    # # ----------
-    # data_file_list = ['train_feats_df.csv']
-    # data_path = '../cached_data/'
-
-    # for f_name in data_file_list:
-    #     if f_name in os.listdir(data_path):
-    #         os.remove(os.path.join(data_path, f_name))
-
     # 读取特征工程脚本
     # ----------
     with open('sql_feature_engineering.sql', 'r') as f:
         sql_script = f.readlines()
-    sql_script = ' '.join([item.strip() for item in sql_script])
 
-    # 构建数据库连接
+    sql_online_script = ' '.join([item.strip() for item in sql_script[:-1]])
+    connection = create_openmldb_connection(openmldb_configs)
+
+    # 部署SQL脚本并载入online数据
     # ----------
-    connection = create_openmldb_connection(CONFIGS)
+
+    # 执行部署
+    logger.info('Start deployment...')
 
     connection.execute('USE {};'.format(CONFIGS.db_name))
-    connection.execute("SET @@execute_mode='offline';")
+    connection.execute("SET @@execute_mode='online';")
     connection.execute('SET @@sync_job=true;')
     connection.execute('SET @@job_timeout=1200000;')
-    connection.execute(sql_script)
+    # connection.execute('DROP DEPLOYMENT IF EXISTS {};'.format(CONFIGS.task_name))
 
-    # # 构建数据库连接
-    # # ----------
-    # if CONFIGS.is_deploy:
-    #     deploy_sql_script = 'DEPLOY compute_feats ' + sql_script
+    # 创建online数据表
+    connection.execute(
+        (
+            f'CREATE TABLE IF NOT EXISTS {CONFIGS.table_name}'
+            ' (unix_ts timestamp, value double, label int, kpi_id int, row_count int);'
+        )
+    )
 
+    # 部署sql脚本
+    deploy_sql_script = f'DEPLOY {CONFIGS.task_name} ' + sql_online_script
+    connection.execute(deploy_sql_script)
+
+    # 载入online数据
+    connection.execute(
+        (
+            f"LOAD DATA INFILE '{CONFIGS.online_data}' "
+            f"INTO TABLE {CONFIGS.table_name} OPTIONS(format='csv', header=true, deep_copy=true, mode='append');"
+        )
+    )
     connection.close()
+
+    logger.info('\n***************FINISHED...***************')

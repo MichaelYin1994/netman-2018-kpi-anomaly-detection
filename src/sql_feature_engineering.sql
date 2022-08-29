@@ -15,7 +15,7 @@ SUM(value) OVER w_3600 AS window_val_sum_w3600,
 MIN(value) OVER w_3600 AS window_val_min_w3600,
 MAX(value) OVER w_3600 AS window_val_max_w3600,
 AVG(value) OVER w_3600 AS window_val_mean_w3600,
-FROM kpi_history_series
+FROM online_kpi_history_series
 WINDOW w_300 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 300s PRECEDING AND CURRENT ROW),
 w_600 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 600s PRECEDING AND CURRENT ROW),
 w_1200 AS (PARTITION BY kpi_id ORDER BY unix_ts ROWS_RANGE BETWEEN 1200s PRECEDING AND CURRENT ROW),

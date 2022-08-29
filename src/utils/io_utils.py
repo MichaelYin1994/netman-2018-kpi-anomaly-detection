@@ -9,7 +9,6 @@
 '''
 import os
 import pickle
-import re
 import warnings
 from datetime import datetime
 
@@ -101,14 +100,20 @@ class LoadSave():
 
 # https://gist.github.com/wphicks/2298fe904f3293a59254e0c35cfe05c1#file-fraud_detection_example-ipynb
 
-def serialize_xgboost_model(xgb_model, model_path, model_version='1'):
+def serialize_xgboost_model(xgb_model, xgb_model_configs, model_path, model_version='1'):
     if model_path == None:
         os.makedirs('./cached_model', exist_ok=True)
         model_path = './cached_model'
+    else:
+        os.makedirs(model_path, exist_ok=True)
 
     # 构建model的文件夹
     version_dir = os.path.join(model_path, str(model_version))
     os.makedirs(version_dir, exist_ok=True)
+
+    # 存储xgboost模型的基础configs
+    yaml_parser = YamlParser(config_dict=xgb_model_configs)
+    yaml_parser.save(dir=model_path, f_name='xgboost_configs.yaml')
 
     # 存储xgboost模型
     xgb_model.save_model(
@@ -140,7 +145,7 @@ class YamlParser:
         if type(obj) not in [list, dict]:
             return
 
-        if type(obj) in list:
+        if type(obj) is list:
             for i in range(len(obj)):
                 if isinstance(obj[i], edict):
                     obj[i] = dict(obj[i])

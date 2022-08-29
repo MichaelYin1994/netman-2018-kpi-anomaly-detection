@@ -21,32 +21,10 @@ import pandas as pd
 import sqlalchemy as db
 import tqdm
 
+from utils.configs import offline_load_configs as CONFIGS
+from utils.configs import openmldb_configs
+from utils.io_utils import YamlParser
 from utils.logger import get_datetime, get_logger
-
-
-class CONFIGS:
-    # 任务名称
-    task_name = 'create_db'
-
-    # 数据库名字
-    db_name = 'kpi_data'
-    table_name = 'kpi_history_series'
-
-    # zookeeper IP
-    # zk_ip = '172.48.0.28'
-    zk_ip = '127.0.0.1'
-
-    # zookeeper port
-    zk_port = '2181'
-
-    # zookeeper path（默认）
-    zk_path = '/openmldb'
-
-    # offline data path
-    offline_data = '/work/kpi-anomaly-detection/cached_data/train_df.csv'
-
-    # online data path
-    online_data = '/work/kpi-anomaly-detection/cached_data/test_df_part_x.csv'
 
 
 def create_openmldb_connection(configs):
@@ -81,7 +59,7 @@ if __name__ == '__main__':
 
     # 构建zookeeper连接
     # *******************
-    connection = create_openmldb_connection(CONFIGS)
+    connection = create_openmldb_connection(openmldb_configs)
 
     # 创建数据库
     sql_statement = 'CREATE DATABASE IF NOT EXISTS {};'.format(CONFIGS.db_name)
@@ -101,20 +79,6 @@ if __name__ == '__main__':
     logger.info('Loading offline data...')
 
     connection.execute("SET @@execute_mode='offline';")
-    connection.execute('SET @@sync_job=true;')
-    connection.execute('SET @@job_timeout=1200000;')
-    connection.execute(
-        (
-            f"LOAD DATA INFILE '{CONFIGS.offline_data}' "
-            f"INTO TABLE {CONFIGS.table_name} OPTIONS(format='csv', header=true, deep_copy=true, mode='append');"
-        )
-    )
-
-    # online模式下，离线数据载入LOAD DATA
-    # *******************
-    logger.info('Loading online data...')
-
-    connection.execute("SET @@execute_mode='online';")
     connection.execute('SET @@sync_job=true;')
     connection.execute('SET @@job_timeout=1200000;')
     connection.execute(

@@ -24,8 +24,20 @@
 
 ---
 ### **源代码说明**
+- **start_openmldb_cluster.sh**：启动openmldb的docker container service，注意提前修改`/work/openmldb/conf/taskmanager.properties`的`spark.master`的local线程数，采用多线程写入。
+- **preprocessing_train_test.py**：对原始比赛数据进行重新预处理、数据切分、重新存储。
+- **create_offline_table.py**：创建离线表 && 将离线数据导入数据库中。
+- **compute_offline_feats.py**：读取sql脚本 && 执行sql脚本，创建离线特征组。
+- **train_xgb.py**：读取离线特征组 && 训练XGBoost模型 && 导出模型基本参数。
+- **deploy_realtime_fe.py**：读取sql脚本（与offline feats相同） && 创建在线表 && 导入在线数据 && 部署在线特征脚本。
+- **deploy_triton_server.py && start_triton_xgb_server.sh**：生成Inference Server的配置文件 && 部署Triton Inference Server后端。
+- **deploy_inference_pipeline.py**：Flask部署Inference Pipeline，Flask Server接收数据 --> Preprocessing --> Openmldb特征工程 && 实时数据插入 --> Postprocessing -->  返回inference结果。
 
-- **preparing.py**：数据切分，入库。
+# ***Todo List*
+- XGBoost Early Stopping的官方Metric的njit实现
+- 单元测试部分对于部署的特征工程的正确性测试
+- Triton inference server的XGBoost模型inference测试
+- 刨除Openmldb的window特征，特征工程对原始数据的前处理和后处理脚本部分
 
 ---
 ### **References**
@@ -51,3 +63,4 @@
 [10] Liu, Dapeng, et al. "Opprentice: Towards practical and automatic anomaly detection through machine learning." Proceedings of the 2015 Internet Measurement Conference. 2015.
 
 [11] Zhao, Nengwen, et al. "Label-less: A semi-automatic labelling tool for kpi anomalies." IEEE INFOCOM 2019-IEEE Conference on Computer Communications. IEEE, 2019.
+

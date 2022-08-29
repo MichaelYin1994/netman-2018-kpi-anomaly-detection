@@ -18,40 +18,15 @@ import xgboost as xgb
 from sklearn.metrics import accuracy_score, f1_score
 
 from metrics.metrics import evaluate_df_score, feval_custom_metric
+from utils.configs import xgb_configs as CONFIGS
 from utils.io_utils import serialize_xgboost_model
 from utils.logger import get_datetime, get_logger
 
 gpus = tf.config.experimental.list_physical_devices('GPU')
 
-class CONFIGS:
-    n_folds = 5
-    task_name = 'train_xgb'
-    early_stopping_rounds = 2000
-    threshold = 0.5
-
-    gpu_id = 0
-    verbose_rounds = 1000
-    global_random_seed = 2077
-    is_save_log_to_disk = True
-    is_save_model_to_disk = False
-
-    xgb_params = {
-        'n_estimators': 15000, # 15000
-        'max_depth': 4,
-        'learning_rate': 0.05,
-        'verbosity': 0,
-        'objective': 'binary:logistic',
-        'booster': 'gbtree',
-        'colsample_bytree': 0.85,
-        'colsample_bylevel': 0.85,
-        'disable_default_eval_metric': 1,
-        'subsample': 0.95,
-        'random_state': global_random_seed
-    }
-
 
 def generator_tscv(df_list, n_folds=2, is_shuffle_train=True):
-    '''Generator of the data'''
+    '''按照kpi-id对应的事件顺序（即比赛要求），生成cv'''
     n_splits = n_folds + 1
     df_size_list = [len(item) for item in df_list]
 
@@ -169,33 +144,25 @@ if __name__ == '__main__':
         X_train_feats = X_train.drop(key_feat_names + ['label'], axis=1)
         X_valid_feats = X_valid.drop(key_feat_names + ['label'], axis=1)
 
+        # 添加模型的配置参数
         xgb_params = CONFIGS.xgb_params.copy()
         if gpus:
             xgb_params['tree_method'] = 'gpu_hist'
             xgb_params['gpu_id'] = CONFIGS.gpu_id
 
+        xgb_params['n_feats'] = X_train_feats.shape[1]
+        xgb_params['n_classes'] = 2
+
         logger.info(
-            '-- train precent: {:.3f}%, valid precent: {:.3f}%'.format(
+            '-- train precent: {:.3f}%, valid precent: {:.3f}%, n_feats: {}'.format(
                 100 * len(X_train_feats) / len(train_feats_df),
-                100 * len(X_valid_feats) / len(train_feats_df)
+                100 * len(X_valid_feats) / len(train_feats_df),
+                X_valid_feats.shape[1]
             )
         )
 
         # STEP 2: 开始训练模型
         # ----------
-        # def feval_custom_metric(true_eval_df, threshold, delay):
-        #     valid_eval_df = true_eval_df.copy()
-        #     def compute_adjusted_f1(y_pred, dtrain):
-        #         # y_true_label = dtrain.get_label()
-        #         y_pred_label = np.where(y_pred > threshold, 1, 0)
-
-        #         valid_eval_df['label'] = y_pred_label
-
-        #         custom_score = evaluate_df_score(true_eval_df, valid_eval_df, delay)['total_score'][0]
-
-        #         return 'adjusted_f1', -1 * np.round(custom_score, 7)
-        #     return compute_adjusted_f1
-
         custom_metric = feval_custom_metric(CONFIGS.threshold)
 
         xgb_clf = xgb.XGBClassifier(**xgb_params)
@@ -214,7 +181,7 @@ if __name__ == '__main__':
         )
         y_val_pred_label = np.where(y_val_pred[:, 1] > CONFIGS.threshold, 1, 0)
 
-        # 存储valid的oof预测结果
+        # 打印fold的官方评估Metric的结果
         X_valid_eval_df = X_valid[key_feat_names + ['label']].copy()
         X_valid_true_df = X_valid[key_feat_names + ['label']].copy()
         X_valid_true_df['label'] = y_val_pred_label
@@ -249,6 +216,7 @@ if __name__ == '__main__':
         if CONFIGS.is_save_model_to_disk:
             serialize_xgboost_model(
                 xgb_clf,
+                xgb_params,
                 model_path='../cached_models/xgb_gpu_models', model_version=str(fold+1)
             )
 
