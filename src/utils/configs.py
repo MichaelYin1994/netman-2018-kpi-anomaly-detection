@@ -37,7 +37,7 @@ offline_load_configs.offline_data = '/work/kpi-anomaly-detection/cached_data/tra
 offline_fe_configs = EasyDict()
 
 # 任务配置项
-offline_fe_configs.task_name = 'create_offline_kpi_feats'
+offline_fe_configs.task_name = 'create_offline_kpi_feats' 
 offline_fe_configs.db_name = openmldb_configs.db_name
 offline_fe_configs.table_name = 'offline_kpi_history_series'
 
@@ -96,6 +96,7 @@ fe_server_configs.url = 'http://{}:{}/dbs/{}/deployments/{}'.format(
     openmldb_configs.zk_ip, fe_server_configs.port, online_fe_configs.db_name, online_fe_configs.task_name
 )
 fe_server_configs.headers = {'Content-Type': 'application/json'}
+fe_server_configs.key_feats = ['kpi_id', 'unix_ts', 'label']
 
 # Inference server配置项
 # *******************
@@ -105,4 +106,14 @@ infer_server_configs.n_features = 1927
 infer_server_configs.n_classes = 2
 infer_server_configs.model_path = '../cached_models/xgb_gpu_models'
 
+infer_server_configs.ip = 'localhost'
+infer_server_configs.port = '8001'
+infer_server_configs.url = '{}:{}'.format(
+    infer_server_configs.ip, infer_server_configs.port
+)
+infer_server_configs.n_classes = 2
+infer_server_configs.model_name = 'xgb_gpu_models'
 infer_server_configs.model_version_list = ['6', '7']
+
+# Flask server配置项
+# *******************

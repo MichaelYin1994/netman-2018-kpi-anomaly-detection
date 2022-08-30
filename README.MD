@@ -33,7 +33,8 @@
 - **deploy_triton_server.py && start_triton_xgb_server.sh**：生成Inference Server的配置文件 && 部署Triton Inference Server后端。
 - **deploy_inference_pipeline.py**：Flask部署Inference Pipeline，Flask Server接收数据 --> Preprocessing --> Openmldb特征工程 && 实时数据插入 --> Postprocessing -->  返回inference结果。
 
-# ***Todo List*
+### **Todo List**
+- 配置的yaml文件进行统一管理
 - XGBoost Early Stopping的官方Metric的njit实现
 - 单元测试部分对于部署的特征工程的正确性测试
 - Triton inference server的XGBoost模型inference测试

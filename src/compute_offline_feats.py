@@ -11,10 +11,12 @@
 
 import os
 
+import pandas as pd
 import sqlalchemy as db
 
 from utils.configs import offline_fe_configs as CONFIGS
 from utils.configs import openmldb_configs
+from utils.io_utils import YamlParser
 from utils.logger import get_datetime, get_logger
 
 
@@ -57,7 +59,6 @@ if __name__ == '__main__':
         sql_script = f.readlines()
 
     sql_offline_script = ' '.join([item.strip() for item in sql_script])
-    # sql_online_script = ' '.join([item.strip() for item in sql_script[:-1]])
 
     # 构建数据库连接
     # ----------
@@ -70,5 +71,18 @@ if __name__ == '__main__':
     connection.execute(sql_offline_script)
 
     connection.close()
+
+    # 存储特征表基础信息
+    # ----------
+    f_dir = '../cached_data/train_feats/'
+    target_dir = '../cached_data/train_feats_meta/'
+
+    f_names_list = [f_name for f_name in os.listdir(f_dir) if f_name.endswith('.csv')]
+    col_names = list(pd.read_csv(os.path.join(f_dir, f_names_list[0])).columns)
+
+    os.makedirs(target_dir, exist_ok=True)
+    config_dict = {'feat_names': col_names}
+    yaml_parser = YamlParser(config_dict=config_dict)
+    yaml_parser.save(dir=target_dir, f_name='feature_meta.yaml')
 
     logger.info('\n***************FINISHED...***************')
